@@ -1,0 +1,8 @@
+version: '3'
+services:
+  bot:
+    container_name: 'NotPixelBot'
+    build:
+      context: .
+    stop_signal: SIGINT
+    restart: unless-stopped
