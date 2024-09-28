@@ -10,15 +10,14 @@ class Settings(BaseSettings):
     SLEEP_TIME: list[int] = [360, 3600]
     START_DELAY: list[int] = [5, 25]
     AUTO_TASK: bool = True
-    TASK_TO_DO: list[str] = ["x:notcoin", "x:notpixel", "paint20pixels", "leagueBonusSilver", "invite3frens",
-                              "leagueBonusGold"]
+    TASKS_TO_DO: list[str] = ["paint20pixels", "x:notpixel", "x:notcoin", "channel:notcoin", "channel:notpixel_channel"]
     AUTO_DRAW: bool = True
     JOIN_TG_CHANNELS: bool = True
     CLAIM_REWARD: bool = True
     AUTO_UPGRADE: bool = True
     REF_ID: str = 'f411905106'
-    IGNORED_BOOSTS: list[str] = ['INVITE_FRIENDS', 'TON_TRANSACTION', 'BOOST_CHANNEL', 'ACTIVITY_CHALLENGE',
-                                 'CONNECT_WALLET']
+    IGNORED_BOOSTS: list[str] = ['paintReward']
+    IN_USE_SESSIONS_PATH: str = 'bot/config/used_sessions.txt'
 
 
 settings = Settings()

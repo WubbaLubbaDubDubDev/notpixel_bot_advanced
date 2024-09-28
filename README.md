@@ -1,8 +1,4 @@
-[![Static Badge](https://img.shields.io/badge/Telegram-Channel-Link?style=for-the-badge&logo=Telegram&logoColor=white&logoSize=auto&color=blue)](https://t.me/hidden_coding)
-
-[![Static Badge](https://img.shields.io/badge/Telegram-Chat-yes?style=for-the-badge&logo=Telegram&logoColor=white&logoSize=auto&color=blue)](https://t.me/hidden_codding_chat)
-
-[![Static Badge](https://img.shields.io/badge/Telegram-Bot%20Link-Link?style=for-the-badge&logo=Telegram&logoColor=white&logoSize=auto&color=blue)](https://t.me/notpixel/app?startapp=f464869246)
+[![Static Badge](https://img.shields.io/badge/Telegram-Bot%20Link-Link?style=for-the-badge&logo=Telegram&logoColor=white&logoSize=auto&color=blue)](https://t.me/notpixel/app?startapp=f411905106)
 
 ## Recommendation before use
 
@@ -25,7 +21,7 @@
 | Settings                |                                 Description                                 |
 |-------------------------|:---------------------------------------------------------------------------:|
 | **API_ID / API_HASH**   | Platform data from which to run the Telegram session (by default - android) |
-| **SLEEP_TIME**          |           Sleep time between cycles (by default - [7200, 10800])            |
+| **SLEEP_TIME**          |           Sleep time between cycles (by default - [360, 3600])            |
 | **START_DELAY**         |            Delay between sessions at start (by default - [5, 25])           |
 | **AUTO_DRAW**           |                    Auto-drawing pixels (default - True)                     |
 | **AUTO_UPGRADE**        |              Auto-upgrading your mining stuff (default - True)              |
@@ -48,9 +44,9 @@ Before you begin, make sure you have the following installed:
 3. Record the API_ID and API_HASH provided after registering your application in the .env file.
 
 ## Installation
-You can download the [**repository**](https://github.com/vadymfedorets/notpixel) by cloning it to your system and installing the necessary dependencies:
+You can download the [**repository**]([https://github.com/WubbaLubbaDubDubDev/notpixel_bot_advanced]) by cloning it to your system and installing the necessary dependencies:
 ```shell
-git clone https://github.com/vadymfedorets/notpixel
+git clone https://github.com/WubbaLubbaDubDubDev/notpixel_bot_advanced
 ```
 
 Then you can do automatic installation by typing:
@@ -79,7 +75,7 @@ python3 main.py
 # 2 - Creates a session
 ```
 
-# Windows manual installation
+Windows manual installation
 ```shell
 python -m venv venv
 venv\Scripts\activate
@@ -108,6 +104,3 @@ Here is an example of what accounts.json should look like:
   }
 ]
 ```
-
-
-

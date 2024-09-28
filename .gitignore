@@ -2,6 +2,8 @@
 
 sessions/
 
+config/used_sessions.txt
+
 .idea/
 
 __pycache__

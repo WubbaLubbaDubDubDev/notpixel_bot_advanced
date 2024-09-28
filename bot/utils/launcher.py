@@ -9,6 +9,7 @@ from bot.utils import logger
 from bot.core.tapper import run_tapper
 from bot.core.registrator import register_sessions, get_tg_client
 from bot.utils.accounts import Accounts
+from bot.utils.firstrun import load_session_names
 
 
 
@@ -66,20 +67,24 @@ async def process() -> None:
                 action = int(action)
                 break
 
+    used_session_names = load_session_names()
+
     if action == 2:
         await register_sessions()
     elif action == 1:
         accounts = await Accounts().get_accounts()
-        await run_tasks(accounts=accounts)
+        await run_tasks(accounts=accounts, used_session_names=used_session_names)
 
 
-async def run_tasks(accounts: [Any, Any, list]):
+async def run_tasks(accounts: [Any, Any, list], used_session_names: [str]):
     tasks = []
     for account in accounts:
         session_name, user_agent, raw_proxy = account.values()
+        first_run = session_name not in used_session_names
         tg_client = await get_tg_client(session_name=session_name, proxy=raw_proxy)
         proxy = get_proxy(raw_proxy=raw_proxy)
-        tasks.append(asyncio.create_task(run_tapper(tg_client=tg_client, user_agent=user_agent, proxy=proxy)))
+        tasks.append(asyncio.create_task(run_tapper(tg_client=tg_client, user_agent=user_agent, proxy=proxy,
+                                                    first_run=first_run)))
         await asyncio.sleep(randint(5, 20))
 
     await asyncio.gather(*tasks)
