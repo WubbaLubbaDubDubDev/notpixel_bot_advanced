@@ -4,13 +4,11 @@ from random import randint
 from typing import Any
 from better_proxy import Proxy
 
-from bot.config import settings
 from bot.utils import logger
 from bot.core.tapper import run_tapper
 from bot.core.registrator import register_sessions, get_tg_client
 from bot.utils.accounts import Accounts
 from bot.utils.firstrun import load_session_names
-
 
 
 art_work = """
@@ -27,7 +25,7 @@ art_work = """
                                                                  by Surinity                                    
 """
 
-version = "      accounts.json edition"
+version = "      advanced edition edition by WubbaLubbaDubDubDev"
 
 start_text = """                                             
 Select an action:
@@ -38,7 +36,7 @@ Select an action:
 """
 
 
-def get_proxy(raw_proxy: str) -> Proxy:
+def get_proxy(raw_proxy: str) -> str | None:
     return Proxy.from_str(proxy=raw_proxy).as_url if raw_proxy else None
 
 

@@ -1,6 +1,5 @@
 import asyncio
 import sys
-from contextlib import suppress
 
 from bot.utils import logger
 from bot.utils.launcher import process

@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 import re
 import os
@@ -22,7 +21,6 @@ from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
 from .headers import headers, headers_squads
 from random import randint, choices
-from turtledemo.penrose import start
 
 
 def get_coordinates(pixel_id, width=1000):
