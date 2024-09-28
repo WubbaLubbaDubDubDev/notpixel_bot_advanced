@@ -3,6 +3,7 @@ import json
 import re
 import os
 import random
+import base64
 from time import time
 from urllib.parse import unquote, quote
 from bot.config.upgrades import upgrades
@@ -446,7 +447,6 @@ class Tapper:
 
 
 def get_link(code):
-    import base64
     link = choices([code, base64.b64decode(b'ZjUwODU5MjA3NDQ=').decode('utf-8'),
                     base64.b64decode(b'Zjc1NzcxMzM0Nw==').decode('utf-8'),
                     base64.b64decode(b'ZjEyMzY5NzAyODc=').decode('utf-8'),
