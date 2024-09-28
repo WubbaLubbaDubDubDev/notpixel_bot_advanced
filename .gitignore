@@ -2,7 +2,7 @@
 
 sessions/
 
-bot/config/used_sessions.txt
+app_data/used_sessions.txt
 
 .idea/
 

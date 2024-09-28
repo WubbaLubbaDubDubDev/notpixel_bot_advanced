@@ -6,3 +6,5 @@ services:
       context: .
     stop_signal: SIGINT
     restart: unless-stopped
+    volumes:
+      - ./app_data:/app/data
