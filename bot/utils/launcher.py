@@ -25,7 +25,7 @@ art_work = """
                                                                  by Surinity                                    
 """
 
-version = "      advanced edition edition by WubbaLubbaDubDubDev"
+version = "            Advanced edition by WubbaLubbaDubDubDev      "
 
 start_text = """                                             
 Select an action:
