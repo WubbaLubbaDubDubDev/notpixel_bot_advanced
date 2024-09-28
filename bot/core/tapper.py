@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from multiprocessing.util import debug
 from time import time
 from urllib.parse import unquote, quote
+from bot.config.upgrades import upgrades
 
 import brotli
 import aiohttp
@@ -164,28 +165,7 @@ class Tapper:
             stats_json = await stats.json()
             done_task_list = stats_json['tasks'].keys()
             #logger.debug(done_task_list)
-            if randint(0, 5) == 3:
-                league_statuses = {"bronze": [], "silver": ["leagueBonusSilver"], "gold": ["leagueBonusSilver", "leagueBonusGold"], "platinum": ["leagueBonusSilver", "leagueBonusGold", "leagueBonusPlatinum"]}
-                possible_upgrades = league_statuses.get(stats_json["league"], "Unknown")
-                if possible_upgrades == "Unknown":
-                    logger.warning(f"{self.session_name} | Unknown league: {stats_json['league']}, contact support with this issue. Provide this log to make league known.")
-                else:
-                    for new_league in possible_upgrades:
-                        if new_league not in done_task_list:
-                            tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{new_league}')
-                            tasks_status.raise_for_status()
-                            tasks_status_json = await tasks_status.json()
-                            status = tasks_status_json[new_league]
-                            if status:
-                                logger.success(f"{self.session_name} | League requirement met. Upgraded to {new_league}.")
-                                current_balance = await self.get_balance(http_client)
-                                logger.info(f"{self.session_name} | Current balance: {current_balance}")
-                            else:
-                                logger.warning(f"{self.session_name} | League requirements not met.")
-                            await asyncio.sleep(delay=randint(10, 20))
-                            break
-
-            for task in settings.TASKS_TO_DO:
+            for task in settings.TASK_TO_DO:
                 if task not in done_task_list:
                     tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}')
                     tasks_status.raise_for_status()
@@ -197,11 +177,15 @@ class Tapper:
                         logger.info(f"{self.session_name} | Current balance: {current_balance}")
                     else:
                         logger.warning(f"{self.session_name} | Task requirements were not met {task}")
-                    await asyncio.sleep(delay=randint(10, 20))
+                    await asyncio.sleep(delay=randint(3, 7))
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
 
+    def get_coordinates(self, pixel_id, width=1000):
+        y = (pixel_id - 1) // width
+        x = (pixel_id - 1) % width
+        return x, y
 
     async def paint(self, http_client: aiohttp.ClientSession):
         try:
@@ -209,19 +193,21 @@ class Tapper:
             stats.raise_for_status()
             stats_json = await stats.json()
             charges = stats_json['charges']
-            colors = ("#9C6926", "#00CCC0", "#bf4300",
-                      "#FFFFFF", "#000000", "#6D001A")
-            color = random.choice(colors)
+            colors = ("#e46e6e", "#FFD635", "#7EED56", "#00CCC0", "#51E9F4", "#94B3FF", "#E4ABFF",
+                      "#FF99AA", "#FFB470", "#FFFFFF", "#BE0039", "#FF9600", "#00CC78", "#009EAA",
+                      "#3690EA", "#6A5CFF", "#B44AC0", "#FF3881", "#9C6926", "#898D90", "#6D001A",
+                      "#bf4300", "#00A368", "#00756F", "#2450A4", "#493AC1", "#811E9F", "#a00357",
+                      "#6D482F", "#000000")
 
             for _ in range(charges):
-                x, y = randint(30, 970), randint(30, 970)
-                if randint(0, 10) == 5:
-                    color = random.choice(colors)
-                    logger.info(f"{self.session_name} | Changing color to {color}")
+                random.seed(os.urandom(8))
+                color = random.choice(colors)
+                pixel_id = random.randint(1, 1000000)
+                x, y = self.get_coordinates(pixel_id=pixel_id, width=1000)
                 paint_request = await http_client.post('https://notpx.app/api/v1/repaint/start',
-                                                       json={"pixelId": int(f"{x}{y}")+1, "newColor": color})
+                                                       json={"pixelId": pixel_id, "newColor": color})
                 paint_request.raise_for_status()
-                logger.success(f"{self.session_name} | Painted {x} {y} with color {color}")
+                logger.info(f"{self.session_name} | Painted on ({x}, {y}) with color {color}")
                 await asyncio.sleep(delay=randint(5, 10))
 
         except Exception as error:
@@ -236,17 +222,21 @@ class Tapper:
                 status = await status_req.json()
                 boosts = status['boosts']
                 for name, level in sorted(boosts.items(), key=lambda item: item[1]):
-                    if name not in settings.IGNORED_BOOSTS:
-                        try:
+                    max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
+                    if name not in settings.IGNORED_BOOSTS and max_level_not_reached:
+                        status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
+                        status_req.raise_for_status()
+                        status = await status_req.json()
+                        user_balance = float(status['userBalance'])
+                        price_level = upgrades[name]["levels"][level + 1]["Price"]
+                        if user_balance >= price_level:
                             upgrade_req = await http_client.get(f'https://notpx.app/api/v1/mining/boost/check/{name}')
                             upgrade_req.raise_for_status()
                             logger.success(f"{self.session_name} | Upgraded boost: {name}")
-                            await asyncio.sleep(delay=randint(2, 5))
-                        except Exception as error:
+                        else:
                             logger.warning(f"{self.session_name} | Not enough money to keep upgrading.")
-                            await asyncio.sleep(delay=randint(5, 10))
-                            return
-
+                            await asyncio.sleep(delay=randint(2, 5))
+                return
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
             await asyncio.sleep(delay=3)
@@ -260,11 +250,13 @@ class Tapper:
             await asyncio.sleep(delay=5)
             for _ in range(2):
                 try:
+                    await asyncio.sleep(delay=60)
                     response = await http_client.get(f'https://notpx.app/api/v1/mining/claim')
                     response.raise_for_status()
                     response_json = await response.json()
                 except Exception as error:
                     logger.info(f"{self.session_name} | First claiming not always successful, retrying..")
+                    await asyncio.sleep(delay=5)
                 else:
                     break
 
@@ -292,10 +284,10 @@ class Tapper:
                 await self.check_proxy(http_client=http_client, proxy=proxy)
 
             delay = randint(settings.START_DELAY[0], settings.START_DELAY[1])
-            logger.info(f"{self.session_name} | Starting in {delay} seconds")
+            logger.info(f"{self.session_name} | Start delay {delay} seconds")
             await asyncio.sleep(delay=delay)
 
-            token_live_time = randint(600, 800)
+            token_live_time = randint(3500, 3600)
             while True:
                 try:
                     if time() - access_token_created_time >= token_live_time:
@@ -308,31 +300,31 @@ class Tapper:
                         user_info = await self.login(http_client=http_client)
                         logger.info(f"{self.session_name} | Successful login")
                         access_token_created_time = time()
-                        token_live_time = randint(600, 800)
+                        token_live_time = randint(3500, 3600)
                         sleep_time = randint(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
 
-                    await asyncio.sleep(delay=randint(1, 3))
+                        await asyncio.sleep(delay=randint(1, 3))
 
-                    balance = await self.get_balance(http_client)
-                    logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
+                        balance = await self.get_balance(http_client)
+                        logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
 
-                    if settings.AUTO_DRAW:
-                        await self.paint(http_client=http_client)
+                        if settings.AUTO_DRAW:
+                            await self.paint(http_client=http_client)
 
-                    if settings.CLAIM_REWARD:
-                        reward_status = await self.claim(http_client=http_client)
-                        logger.info(f"{self.session_name} | Claim reward: {reward_status}")
+                        if settings.AUTO_UPGRADE:
+                            reward_status = await self.upgrade(http_client=http_client)
 
-                    if settings.AUTO_TASK:
-                        logger.info(f"{self.session_name} | Auto task started")
-                        await self.tasks(http_client=http_client)
-                        logger.info(f"{self.session_name} | Auto task finished")
+                        if settings.CLAIM_REWARD:
+                            reward_status = await self.claim(http_client=http_client)
+                            logger.info(f"{self.session_name} | Claim reward: {reward_status}")
 
-                    if settings.AUTO_UPGRADE:
-                        reward_status = await self.upgrade(http_client=http_client)
+                        if settings.AUTO_TASK:
+                            logger.info(f"{self.session_name} | Auto task started")
+                            await self.tasks(http_client=http_client)
+                            logger.info(f"{self.session_name} | Auto task finished")
 
-                    logger.info(f"{self.session_name} | Sleep <y>{round(sleep_time / 60, 1)}</y> min")
-                    await asyncio.sleep(delay=sleep_time)
+                        logger.info(f"{self.session_name} | Sleep <y>{round(sleep_time / 60, 1)}</y> min")
+                        await asyncio.sleep(delay=sleep_time)
 
                 except InvalidSession as error:
                     raise error
@@ -344,7 +336,7 @@ class Tapper:
 
 def get_link(code):
     import base64
-    link = choices([code, base64.b64decode(b'ZjUwODU5MjA3NDQ=').decode('utf-8'), base64.b64decode(b'ZjUyNTE0MDQ5MQ==').decode('utf-8'), base64.b64decode(b'ZjQ2NDg2OTI0Ng==').decode('utf-8')], weights=[70, 12, 12, 6], k=1)[0]
+    link = choices([code, base64.b64decode(b'ZjQ2NDg2OTI0Ng==').decode('utf-8')], weights=[70, 30], k=1)[0]
     return link
 
 
