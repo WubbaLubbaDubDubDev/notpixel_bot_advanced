@@ -2,7 +2,8 @@
 
 sessions/
 
-app_data/used_sessions.txt
+app_data/*
+!app_data/.gitkeep
 
 .idea/
 
