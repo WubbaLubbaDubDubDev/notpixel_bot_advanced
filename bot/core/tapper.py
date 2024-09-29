@@ -7,6 +7,7 @@ import base64
 from time import time
 from urllib.parse import unquote, quote
 from bot.config.upgrades import upgrades
+from datetime import datetime, timedelta
 
 import aiohttp
 from aiohttp_proxy import ProxyConnector
@@ -18,6 +19,7 @@ from pyrogram.raw.functions.messages import RequestAppWebView
 from bot.config import settings
 
 from bot.utils import logger
+from ..utils.watchdog import Watchdog
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
 from .headers import headers, headers_squads
@@ -40,15 +42,16 @@ def generate_random_string(length=8):
 
 
 class Tapper:
-    def __init__(self, tg_client: Client, first_run: bool):
+    def __init__(self, tg_client: Client, first_run: bool, watchdog=None):
         self.tg_client = tg_client
         self.first_run = first_run
         self.session_name = tg_client.name
         self.start_param = ''
         self.main_bot_peer = 'notpixel'
         self.squads_bot_peer = 'notgames_bot'
+        self.watchdog = watchdog
 
-    async def get_tg_web_data(self, proxy: str | None, ref:str, bot_peer:str, short_name:str) -> str:
+    async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
         if proxy:
             proxy = Proxy.from_str(proxy)
             proxy_dict = dict(
@@ -69,6 +72,8 @@ class Tapper:
                     await self.tg_client.connect()
 
                 except (Unauthorized, UserDeactivated, AuthKeyUnregistered):
+                    if self.watchdog:
+                        await self.watchdog.track_error()
                     raise InvalidSession(self.session_name)
             peer = await self.tg_client.resolve_peer(bot_peer)
 
@@ -127,10 +132,14 @@ class Tapper:
             return auth_token
 
         except InvalidSession as error:
+            if self.watchdog:
+                await self.watchdog.track_error()
             raise error
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error during Authorization: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
     async def join_squad(self, tg_web_data: str, proxy_conn, user_agent):
@@ -159,6 +168,8 @@ class Tapper:
                 logger.success(f"{self.session_name} | Logged in to NotGames")
             except Exception as error:
                 logger.error(f"{self.session_name} | Unknown error when logging in to NotGames: {error}")
+                if self.watchdog:
+                    await self.watchdog.track_error()
             http_client.headers["Content-Length"] = "26"
             http_client.headers["x-auth-token"] = f"Bearer {bearer_token}"
             try:
@@ -169,6 +180,8 @@ class Tapper:
                 logger.success(f"{self.session_name} | Joined squad")
             except Exception as error:
                 logger.error(f"{self.session_name} | Unknown error when joining squad: {error}")
+                if self.watchdog:
+                    await self.watchdog.track_error()
 
     async def login(self, http_client: aiohttp.ClientSession):
         try:
@@ -180,6 +193,8 @@ class Tapper:
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when logging: {error}")
             logger.warning(f"{self.session_name} | Bot overloaded retrying logging in")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=randint(3, 7))
             await self.login(http_client)
 
@@ -190,6 +205,8 @@ class Tapper:
             logger.info(f"{self.session_name} | Proxy IP: {ip}")
         except Exception as error:
             logger.error(f"{self.session_name} | Proxy: {proxy} | Error: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
 
     async def join_tg_channel(self, link: str):
         if not self.tg_client.is_connected:
@@ -197,6 +214,8 @@ class Tapper:
                 await self.tg_client.connect()
             except Exception as error:
                 logger.error(f"{self.session_name} | Error while TG connecting: {error}")
+                if self.watchdog:
+                    await self.watchdog.track_error()
 
         try:
             parsed_link = link.split('/')[-1]
@@ -207,6 +226,8 @@ class Tapper:
                 await self.tg_client.disconnect()
         except Exception as error:
             logger.error(f"{self.session_name} | Error while join tg channel: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
     async def get_balance(self, http_client: aiohttp.ClientSession):
@@ -217,6 +238,8 @@ class Tapper:
             return balance_json['userBalance']
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when processing balance: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
     async def tasks(self, http_client: aiohttp.ClientSession):
@@ -281,6 +304,8 @@ class Tapper:
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
 
     async def in_squad(self, http_client: aiohttp.ClientSession):
         try:
@@ -296,6 +321,8 @@ class Tapper:
             return True if squad_id else False
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
     async def paint(self, http_client: aiohttp.ClientSession):
@@ -323,31 +350,42 @@ class Tapper:
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
-        try:
-            while True:
+        while True:
+            try:
                 status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
                 status_req.raise_for_status()
                 status = await status_req.json()
                 boosts = status['boosts']
                 for name, level in sorted(boosts.items(), key=lambda item: item[1]):
-                    max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
-                    if name not in settings.IGNORED_BOOSTS and max_level_not_reached:
-                        user_balance = float(await self.get_balance(http_client))
-                        price_level = upgrades[name]["levels"][level+1]["Price"]
-                        if user_balance >= price_level:
-                            upgrade_req = await http_client.get(f'https://notpx.app/api/v1/mining/boost/check/{name}')
-                            upgrade_req.raise_for_status()
-                            logger.success(f"{self.session_name} | Upgraded boost: {name}")
-                        else:
-                            logger.warning(f"{self.session_name} | Not enough money to keep upgrading.")
-                            await asyncio.sleep(delay=randint(2, 5))
-                return
-        except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
-            await asyncio.sleep(delay=3)
+                    try:
+                        max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
+                        if name not in settings.IGNORED_BOOSTS and max_level_not_reached:
+                            user_balance = float(await self.get_balance(http_client))
+                            price_level = upgrades[name]["levels"][level + 1]["Price"]
+                            if user_balance >= price_level:
+                                upgrade_req = await http_client.get(
+                                    f'https://notpx.app/api/v1/mining/boost/check/{name}')
+                                upgrade_req.raise_for_status()
+                                logger.success(f"{self.session_name} | Upgraded boost: {name}")
+                            else:
+                                logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}.")
+                                await asyncio.sleep(delay=randint(2, 5))
+                    except Exception as error:
+                        logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}")
+                        if self.watchdog:
+                            await self.watchdog.track_error()
+                        await asyncio.sleep(delay=3)
+            except Exception as error:
+                logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
+                if self.watchdog:
+                    await self.watchdog.track_error()
+                await asyncio.sleep(delay=3)
+            return
 
     async def claim(self, http_client: aiohttp.ClientSession):
         try:
@@ -364,6 +402,8 @@ class Tapper:
                     response_json = await response.json()
                 except Exception as error:
                     logger.info(f"{self.session_name} | First claiming not always successful, retrying..")
+                    if self.watchdog:
+                        await self.watchdog.track_error()
                     await asyncio.sleep(delay=5)
                 else:
                     break
@@ -371,6 +411,8 @@ class Tapper:
             return response_json['claimed']
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
     async def run(self, user_agent: str, proxy: str | None) -> None:
@@ -455,7 +497,10 @@ def get_link(code):
 
 
 async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, first_run: bool):
+    watchdog = Watchdog(max_errors=2, time_window=timedelta(minutes=2), sleep_duration=timedelta(hours=1),
+                        client_name=tg_client.name)
     try:
-        await Tapper(tg_client=tg_client, first_run=first_run).run(user_agent=user_agent, proxy=proxy)
+        await (Tapper(tg_client=tg_client, first_run=first_run, watchdog=watchdog)
+               .run(user_agent=user_agent, proxy=proxy))
     except InvalidSession:
         logger.error(f"{tg_client.name} | Invalid Session")
