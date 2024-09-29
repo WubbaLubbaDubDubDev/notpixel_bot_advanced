@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     REF_ID: str = 'f411905106'
     IGNORED_BOOSTS: list[str] = ['paintReward']
     IN_USE_SESSIONS_PATH: str = 'app_data/used_sessions.txt'
+    DRAW_IMAGE: bool = True
+    DRAWING_START_COORDINATES: list[int] = [520, 582]
+    IMAGE_PATH: str = "10x10.png"
 
 
 settings = Settings()

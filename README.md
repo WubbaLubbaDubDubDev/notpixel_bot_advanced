@@ -5,29 +5,32 @@
 # 🔥🔥 Use PYTHON 3.10 🔥🔥
 
 ## Features  
-| Feature                                                   | Supported |
-|-----------------------------------------------------------|:---------:|
-| Asynchronous processing                                    |     ✅     |
-| Proxy binding to session                                  |     ✅     |
-| User-Agent binding to session                             |     ✅     |
-| Support pyrogram .session                                 |     ✅     |
-| Registration in bot                                       |     ✅     |
-| Auto-tasks                                                |     ✅     |
-| Daily rewards                                             |     ✅     |
-| Pause feature on reaching maximum error threshold         |     ✅     |
-
+| Feature                                              | Supported |
+|------------------------------------------------------|:---------:|
+| Asynchronous processing                              |     ✅     |
+| Proxy binding to session                             |     ✅     |
+| User-Agent binding to session                        |     ✅     |
+| Support pyrogram .session                            |     ✅     |
+| Registration in bot                                  |     ✅     |
+| Auto-tasks                                           |     ✅     |
+| Daily rewards                                        |     ✅     |
+| Pause feature on reaching maximum error threshold 🆕 |     ✅     |
+| Drawing specified image 🆕                           |     ✅     |
 ## [Settings]
-| Settings                |                                 Description                                 |
-|-------------------------|:---------------------------------------------------------------------------:|
-| **API_ID / API_HASH**   | Platform data from which to run the Telegram session (by default - android) |
-| **SLEEP_TIME**          |           Sleep time between cycles (by default - [360, 3600])            |
-| **START_DELAY**         |            Delay between sessions at start (by default - [5, 25])           |
-| **AUTO_DRAW**           |                    Auto-drawing pixels (default - True)                     |
-| **AUTO_UPGRADE**        |              Auto-upgrading your mining stuff (default - True)              |
-| **CLAIM_REWARD**        |                     Claim daily reward (default - True)                     |
-| **AUTO_TASK** DANGEROUS |                         Auto tasks (default - False)                        |
-| **TASKS_TO_DO** AUTOTASK|              List of tasks for auto-task (default - all tasks)              |
-| **REF_ID**              |                      Thing that goes after startapp=                        |
+| Settings                       |                                 Description                                 |
+|--------------------------------|:---------------------------------------------------------------------------:|
+| **API_ID / API_HASH**          | Platform data from which to run the Telegram session (by default - android) |
+| **SLEEP_TIME**                 |            Sleep time between cycles (by default - [360, 3600])             |
+| **START_DELAY**                |           Delay between sessions at start (by default - [5, 25])            |
+| **AUTO_DRAW**                  |                    Auto-drawing pixels (default - True)                     |
+| **AUTO_UPGRADE**               |              Auto-upgrading your mining stuff (default - True)              |
+| **CLAIM_REWARD**               |                     Claim daily reward (default - True)                     |
+| **AUTO_TASK** DANGEROUS        |                        Auto tasks (default - False)                         |
+| **TASKS_TO_DO** AUTOTASK       |              List of tasks for auto-task (default - all tasks)              |
+| **REF_ID**                     |                       Thing that goes after startapp=                       |
+| **DRAW_IMAGE=**                |             Enable drawing of specified image (default - True)              |
+| **DRAWING_START_COORDINATES=** |         Starting coordinates for drawing the image (e.g., [10, 5])          |
+| **IMAGE_PATH=**                |                     Path to the image file to be drawn                      |
 
 ## Quick Start 📚
 

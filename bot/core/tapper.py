@@ -32,6 +32,10 @@ def get_coordinates(pixel_id, width=1000):
     return x, y
 
 
+def get_pixel_id(x, y, width=1000):
+    return y * width + x + 1
+
+
 def generate_random_string(length=8):
     characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
     random_string = ''
@@ -42,7 +46,7 @@ def generate_random_string(length=8):
 
 
 class Tapper:
-    def __init__(self, tg_client: Client, first_run: bool, watchdog=None):
+    def __init__(self, tg_client: Client, first_run: bool, watchdog=None, pixel_chain=None):
         self.tg_client = tg_client
         self.first_run = first_run
         self.session_name = tg_client.name
@@ -50,6 +54,7 @@ class Tapper:
         self.main_bot_peer = 'notpixel'
         self.squads_bot_peer = 'notgames_bot'
         self.watchdog = watchdog
+        self.pixel_chain = pixel_chain
 
     async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
         if proxy:
@@ -339,9 +344,15 @@ class Tapper:
 
             for _ in range(charges):
                 random.seed(os.urandom(8))
-                color = random.choice(colors)
-                pixel_id = random.randint(1, 1000000)
-                x, y = get_coordinates(pixel_id=pixel_id, width=1000)
+
+                if self.pixel_chain:
+                    x, y, color = self.pixel_chain.get_pixel()
+                    pixel_id = get_pixel_id(x, y)
+                else:
+                    color = random.choice(colors)
+                    pixel_id = random.randint(1, 1000000)
+                    x, y = get_coordinates(pixel_id=pixel_id, width=1000)
+
                 paint_request = await http_client.post('https://notpx.app/api/v1/repaint/start',
                                                        json={"pixelId": pixel_id, "newColor": color})
                 paint_request.raise_for_status()
@@ -496,11 +507,11 @@ def get_link(code):
     return link
 
 
-async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, first_run: bool):
+async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, first_run: bool, pixel_chain=None):
     watchdog = Watchdog(max_errors=5, time_window=timedelta(minutes=2), sleep_duration=timedelta(hours=1),
                         client_name=tg_client.name)
     try:
-        await (Tapper(tg_client=tg_client, first_run=first_run, watchdog=watchdog)
+        await (Tapper(tg_client=tg_client, first_run=first_run, watchdog=watchdog, pixel_chain=pixel_chain)
                .run(user_agent=user_agent, proxy=proxy))
     except InvalidSession:
         logger.error(f"{tg_client.name} | Invalid Session")
