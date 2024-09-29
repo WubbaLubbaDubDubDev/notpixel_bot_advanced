@@ -51,7 +51,20 @@ Then you can do automatic installation by typing:
 
 ### Windows:
 ```shell
-run.bat
+./run.bat
+```
+
+### Linux:
+```shell
+chmod +x run.sh
+./run.sh
+```
+
+### Running in Docker
+
+To run the project in Docker, navigate to the root directory of the script and execute the following command:
+```shell
+docker-compose up --build
 ```
 
 ## Linux manual installation
