@@ -497,7 +497,7 @@ def get_link(code):
 
 
 async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, first_run: bool):
-    watchdog = Watchdog(max_errors=2, time_window=timedelta(minutes=2), sleep_duration=timedelta(hours=1),
+    watchdog = Watchdog(max_errors=5, time_window=timedelta(minutes=2), sleep_duration=timedelta(hours=1),
                         client_name=tg_client.name)
     try:
         await (Tapper(tg_client=tg_client, first_run=first_run, watchdog=watchdog)
