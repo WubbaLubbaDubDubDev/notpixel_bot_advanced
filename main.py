@@ -6,7 +6,12 @@ from bot.utils.launcher import process
 
 
 async def main():
-    await process()
+    try:
+        logger.info("<g>Bot started...</g>")
+        await process()
+    except Exception as e:
+        logger.error(f"<r>Error occurred: {e}</r>")
+        sys.exit(1)
 
 
 if __name__ == '__main__':
