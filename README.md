@@ -14,7 +14,7 @@
 | Registration in bot                                       |     ✅     |
 | Auto-tasks                                                |     ✅     |
 | Daily rewards                                             |     ✅     |
-
+| Pause feature on reaching maximum error threshold         |     ✅     |
 
 
 ## [Settings]
