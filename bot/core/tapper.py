@@ -377,7 +377,7 @@ class Tapper:
                       "#6D482F", "#000000")
 
             for _ in range(charges):
-                current_balance = await self.get_balance(http_client)
+                previous_balance = await self.get_balance(http_client)
                 random.seed(os.urandom(8))
                 if self.pixel_chain:
                     x, y, color = self.pixel_chain.get_pixel()
@@ -401,8 +401,7 @@ class Tapper:
                         x, y = get_coordinates(pixel_id=pixel_id, width=1000)
                 paint_request = await http_client.post('https://notpx.app/api/v1/repaint/start',
                                                        json={"pixelId": pixel_id, "newColor": color})
-                response_data = await paint_request.json()
-                delta = response_data['balance'] - current_balance
+                delta = await self.get_balance(http_client) - previous_balance
                 paint_request.raise_for_status()
                 logger.info(f"{self.session_name} | Painted on ({x}, {y}) with color {color}, reward: <e>{delta}</e>")
                 await asyncio.sleep(delay=randint(5, 10))
