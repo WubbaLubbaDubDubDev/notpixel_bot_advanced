@@ -3,6 +3,7 @@ import argparse
 from random import randint
 from typing import Any
 from better_proxy import Proxy
+from PIL import Image
 
 from bot.utils import logger
 from bot.core.tapper import run_tapper
@@ -79,9 +80,9 @@ async def run_tasks(accounts: [Any, Any, list], used_session_names: [str]):
     tasks = []
     chain = None
     if settings.DRAW_IMAGE:
-        image_path = settings.IMAGE_PATH
+        image = Image.open(settings.IMAGE_PATH)
         coordinates = settings.DRAWING_START_COORDINATES
-        chain = PixelChain(image_path, coordinates[0], coordinates[1], 1000, 1000)
+        chain = PixelChain(image, coordinates[0], coordinates[1], 1000, 1000)
     for account in accounts:
         session_name, user_agent, raw_proxy = account.values()
         first_run = session_name not in used_session_names

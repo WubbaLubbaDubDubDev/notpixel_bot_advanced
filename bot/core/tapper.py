@@ -4,8 +4,11 @@ import re
 import os
 import random
 import base64
+from io import BytesIO
 from time import time
 from urllib.parse import unquote, quote
+from PIL import Image
+
 from bot.config.upgrades import upgrades
 from datetime import datetime, timedelta
 
@@ -19,6 +22,7 @@ from pyrogram.raw.functions.messages import RequestAppWebView
 from bot.config import settings
 
 from bot.utils import logger
+from ..utils.art_parser import JSArtParserAsync
 from ..utils.watchdog import Watchdog
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
@@ -330,6 +334,36 @@ class Tapper:
                 await self.watchdog.track_error()
             await asyncio.sleep(delay=3)
 
+    async def download_image(self, url, http_client):
+        async with http_client.get(url) as response:
+            if response.status == 200:
+                image_data = await response.read()  # Читаємо вміст
+                image = Image.open(BytesIO(image_data)).convert('RGB') # Відкриваємо зображення
+                return image
+            else:
+                print(f"Error downloading image: {response.status}")
+                return None
+
+    def find_differences(self, art_image, canvas_image, start_x, start_y):
+        original_width, original_height = art_image.size
+        canvas_width, canvas_height = canvas_image.size
+
+        if start_x + original_width > canvas_width or start_y + original_height > canvas_height:
+            raise ValueError("Original image is out of bounds of the large image.")
+
+        differences = []
+
+        for y in range(original_height):
+            for x in range(original_width):
+                original_pixel = art_image.getpixel((x, y))
+                large_pixel = canvas_image.getpixel((start_x + x, start_y + y))
+
+                if original_pixel != large_pixel:
+                    hex_color = "#{:02x}{:02x}{:02x}".format(original_pixel[0], original_pixel[1],
+                                                             original_pixel[2]).upper()
+                    differences.append([start_x + x, start_y + y, hex_color])
+        return differences
+
     async def paint(self, http_client: aiohttp.ClientSession):
         try:
             stats = await http_client.get('https://notpx.app/api/v1/mining/status')
@@ -343,20 +377,34 @@ class Tapper:
                       "#6D482F", "#000000")
 
             for _ in range(charges):
+                current_balance = await self.get_balance(http_client)
                 random.seed(os.urandom(8))
-
                 if self.pixel_chain:
                     x, y, color = self.pixel_chain.get_pixel()
                     pixel_id = get_pixel_id(x, y)
                 else:
-                    color = random.choice(colors)
-                    pixel_id = random.randint(1, 1000000)
-                    x, y = get_coordinates(pixel_id=pixel_id, width=1000)
-
+                    image_parser = JSArtParserAsync(http_client)
+                    arts = await image_parser.get_all_arts_data()
+                    canvas_url = r'https://image.notpx.app/api/v2/image'
+                    if arts and (canvas_url is not None):
+                        selected_art = random.choice(arts)
+                        art_image = await self.download_image(selected_art['image'], http_client)
+                        canvas_image = await self.download_image(canvas_url, http_client)
+                        diffs = self.find_differences(canvas_image=canvas_image, art_image=art_image,
+                                                      start_x=int(selected_art['x']),
+                                                      start_y=int(selected_art['y']))
+                        x, y, color = random.choice(diffs)
+                        pixel_id = get_pixel_id(x, y)
+                    else:
+                        color = random.choice(colors)
+                        pixel_id = random.randint(1, 1000000)
+                        x, y = get_coordinates(pixel_id=pixel_id, width=1000)
                 paint_request = await http_client.post('https://notpx.app/api/v1/repaint/start',
                                                        json={"pixelId": pixel_id, "newColor": color})
+                response_data = await paint_request.json()
+                delta = response_data['balance'] - current_balance
                 paint_request.raise_for_status()
-                logger.info(f"{self.session_name} | Painted on ({x}, {y}) with color {color}")
+                logger.info(f"{self.session_name} | Painted on ({x}, {y}) with color {color}, reward: <e>{delta}</e>")
                 await asyncio.sleep(delay=randint(5, 10))
 
         except Exception as error:
@@ -366,37 +414,35 @@ class Tapper:
             await asyncio.sleep(delay=3)
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
-        while True:
-            try:
-                status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
-                status_req.raise_for_status()
-                status = await status_req.json()
-                boosts = status['boosts']
-                for name, level in sorted(boosts.items(), key=lambda item: item[1]):
-                    try:
-                        max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
-                        if name not in settings.IGNORED_BOOSTS and max_level_not_reached:
-                            user_balance = float(await self.get_balance(http_client))
-                            price_level = upgrades[name]["levels"][level + 1]["Price"]
-                            if user_balance >= price_level:
-                                upgrade_req = await http_client.get(
-                                    f'https://notpx.app/api/v1/mining/boost/check/{name}')
-                                upgrade_req.raise_for_status()
-                                logger.success(f"{self.session_name} | Upgraded boost: {name}")
-                            else:
-                                logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}.")
-                                await asyncio.sleep(delay=randint(2, 5))
-                    except Exception as error:
-                        logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}")
-                        if self.watchdog:
-                            await self.watchdog.track_error()
-                        await asyncio.sleep(delay=3)
-            except Exception as error:
-                logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
-                if self.watchdog:
-                    await self.watchdog.track_error()
-                await asyncio.sleep(delay=3)
-            return
+        try:
+            status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
+            status_req.raise_for_status()
+            status = await status_req.json()
+            boosts = status['boosts']
+            for name, level in sorted(boosts.items(), key=lambda item: item[1]):
+                try:
+                    max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
+                    if name not in settings.IGNORED_BOOSTS and max_level_not_reached:
+                        user_balance = float(await self.get_balance(http_client))
+                        price_level = upgrades[name]["levels"][level + 1]["Price"]
+                        if user_balance >= price_level:
+                            upgrade_req = await http_client.get(
+                                f'https://notpx.app/api/v1/mining/boost/check/{name}')
+                            upgrade_req.raise_for_status()
+                            logger.success(f"{self.session_name} | Upgraded boost: {name}")
+                        else:
+                            logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}")
+                            await asyncio.sleep(delay=randint(2, 5))
+                except Exception as error:
+                    logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}")
+                    if self.watchdog:
+                        await self.watchdog.track_error()
+                    await asyncio.sleep(delay=3)
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
+            if self.watchdog:
+                await self.watchdog.track_error()
+            await asyncio.sleep(delay=3)
 
     async def claim(self, http_client: aiohttp.ClientSession):
         try:
@@ -442,7 +488,7 @@ class Tapper:
             logger.info(f"{self.session_name} | Start delay {delay} seconds")
             await asyncio.sleep(delay=delay)
 
-            token_live_time = randint(3500, 3600)
+            token_live_time = randint(600, 800)
             while True:
                 try:
                     if time() - access_token_created_time >= token_live_time:
@@ -451,45 +497,45 @@ class Tapper:
                         if tg_web_data is None:
                             continue
 
-                        http_client.headers["Authorization"] = f"initData {tg_web_data}"
-                        logger.info(f"{self.session_name} | Started login")
-                        user_info = await self.login(http_client=http_client)
-                        logger.success(f"{self.session_name} | Successful login")
-                        access_token_created_time = time()
-                        token_live_time = randint(3500, 3600)
-                        sleep_time = randint(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+                    http_client.headers["Authorization"] = f"initData {tg_web_data}"
+                    logger.info(f"{self.session_name} | Started login")
+                    user_info = await self.login(http_client=http_client)
+                    logger.success(f"{self.session_name} | Successful login")
+                    access_token_created_time = time()
+                    token_live_time = randint(600, 800)
+                    sleep_time = randint(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
 
-                        await asyncio.sleep(delay=randint(1, 3))
+                    await asyncio.sleep(delay=randint(1, 3))
 
-                        balance = await self.get_balance(http_client)
-                        logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
+                    balance = await self.get_balance(http_client)
+                    logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
 
-                        if settings.AUTO_DRAW:
-                            await self.paint(http_client=http_client)
+                    if settings.AUTO_DRAW:
+                        await self.paint(http_client=http_client)
 
-                        if settings.AUTO_UPGRADE:
-                            reward_status = await self.upgrade(http_client=http_client)
+                    if settings.AUTO_UPGRADE:
+                        reward_status = await self.upgrade(http_client=http_client)
 
-                        if randint(1, 8) == 5:
-                            if not await self.in_squad(http_client=http_client):
-                                tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
-                                                                         ref="cmVmPTQ2NDg2OTI0Ng==",
-                                                                         short_name="squads")
-                                await self.join_squad(tg_web_data, proxy_conn, user_agent)
-                            else:
-                                logger.success(f"{self.session_name} | You're already in squad")
+                    if randint(1, 8) == 5:
+                        if not await self.in_squad(http_client=http_client):
+                            tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
+                                                                     ref="cmVmPTQ2NDg2OTI0Ng==",
+                                                                     short_name="squads")
+                            await self.join_squad(tg_web_data, proxy_conn, user_agent)
+                        else:
+                            logger.success(f"{self.session_name} | You're already in squad")
 
-                        if settings.CLAIM_REWARD:
-                            reward_status = await self.claim(http_client=http_client)
-                            logger.info(f"{self.session_name} | Claim reward: <e>{reward_status}</e>")
+                    if settings.CLAIM_REWARD:
+                        reward_status = await self.claim(http_client=http_client)
+                        logger.info(f"{self.session_name} | Claim reward: <e>{reward_status}</e>")
 
-                        if settings.AUTO_TASK:
-                            logger.info(f"{self.session_name} | Auto task started")
-                            await self.tasks(http_client=http_client)
-                            logger.info(f"{self.session_name} | Auto task finished")
+                    if settings.AUTO_TASK:
+                        logger.info(f"{self.session_name} | Auto task started")
+                        await self.tasks(http_client=http_client)
+                        logger.info(f"{self.session_name} | Auto task finished")
 
-                        logger.info(f"{self.session_name} | Sleep <y>{round(sleep_time / 60, 1)}</y> min")
-                        await asyncio.sleep(delay=sleep_time)
+                    logger.info(f"{self.session_name} | Sleep <y>{round(sleep_time / 60, 1)}</y> min")
+                    await asyncio.sleep(delay=sleep_time)
 
                 except InvalidSession as error:
                     raise error

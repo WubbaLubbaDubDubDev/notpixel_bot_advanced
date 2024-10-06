@@ -1,13 +1,12 @@
 import random
-from PIL import Image
 from ..utils.image_simplifier import ImageSimplifier
 from ..utils.pixel_mapper import PixelMapper
 from ..config.palette import hex_palette
 
 
 class PixelChain:
-    def __init__(self, image_path, start_x, start_y,  canvas_width, canvas_height):
-        self.image = Image.open(image_path)
+    def __init__(self, image, start_x, start_y,  canvas_width, canvas_height):
+        self.image = image
         self.start_x = start_x
         self.start_y = start_y
         self.canvas_width = canvas_width
