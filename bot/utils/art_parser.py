@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 class JSArtParserAsync:
     def __init__(self, http_client):
         self.url = "https://app.notpx.app/"
-        self.js_filename = 'index-BkVcn5IH.js'
+        self.js_filename = 'index-DXJ5cfMN.js'
         self.session = http_client
         self.js_content = None
 
@@ -17,14 +17,14 @@ class JSArtParserAsync:
                 response.raise_for_status()
                 return await response.text()
         except aiohttp.ClientError as e:
-            print(f"Не вдалося завантажити HTML: {e}")
+            print(f"Failed to load HTML: {e}")
             return None
 
     def find_js_file(self, html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         scripts = soup.find_all('script', src=True)
         for script in scripts:
-            if self.js_filename in script['src']:
+            if "index-" in script['src']:
                 return script['src']
         return None
 
@@ -73,26 +73,27 @@ class JSArtParserAsync:
             return None
 
     def parse_arts_data(self):
-        pattern = r'\{\s*x:\s*[^,]+,\s*y:\s*[^,]+,\s*size:\s*[^,]+,\s*image:\s*\w+,\s*imageData:\s*[^,]+,\s*texture:\s*[^,]+,\s*sprite:\s*[^}]+\}'
+        pattern = r"\{[^}]*x\s*:\s*\d+[^}]*y\s*:\s*\d+[^}]*imageSize\s*:\s*\d+[^}]*url\s*:\s*[^,}]+[^}]*type\s*:\s*[^,}]+[^}]*\}"
         matches = re.findall(pattern, self.js_content, re.DOTALL)
         items_list = []
 
         for match in matches:
-            match = match.replace("null", "None")
-            match = re.sub(r'(\w+)', r'"\1"', match)
-            match = match.replace("}", "").replace("{", "").strip()
-            items_dict = {}
-            for item in match.split(","):
-                key, value = item.split(":")
-                if key.strip().strip('"') == "x" and ("width" in value):
-                    x = self.calculate_x(value.strip().strip('"'))
-                    items_dict[key.strip().strip('"')] = x
-                elif key.strip().strip('"') == "image":
-                    image_path = self.parse_image_constants(value.strip().strip('"'))
-                    items_dict[key.strip().strip('"')] = image_path
-                else:
-                    items_dict[key.strip().strip('"')] = value.strip().strip('"')
-            items_list.append(items_dict)
+            # Регулярні вирази для кожної змінної
+            x_pattern = r"x\s*:\s*(\d+)"
+            y_pattern = r"y\s*:\s*(\d+)"
+            image_size_pattern = r"imageSize\s*:\s*(\d+)"
+            url_pattern = r"url\s*:\s*([^,}]+)"
+            type_pattern = r"type\s*:\s*([^,}]+)"
+
+            # Витягуємо значення змінних
+            x_value = re.search(x_pattern, match).group(1)
+            y_value = re.search(y_pattern, match).group(1)
+            image_size_value = re.search(image_size_pattern, match).group(1)
+            url_value = re.search(url_pattern, match).group(1)
+            type_value = re.search(type_pattern, match).group(1)
+            item = {"x": int(x_value), "y": int(y_value), "imageSize": int(image_size_value),
+                    "url": self.parse_image_constants(url_value), "type": type_value}
+            items_list.append(item)
         return items_list
 
     async def get_all_arts_data(self):

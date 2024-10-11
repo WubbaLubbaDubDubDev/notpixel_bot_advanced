@@ -344,25 +344,23 @@ class Tapper:
                 print(f"Error downloading image: {response.status}")
                 return None
 
-    def find_differences(self, art_image, canvas_image, start_x, start_y):
+    def find_difference(self, art_image, canvas_image, start_x, start_y):
         original_width, original_height = art_image.size
         canvas_width, canvas_height = canvas_image.size
 
         if start_x + original_width > canvas_width or start_y + original_height > canvas_height:
             raise ValueError("Original image is out of bounds of the large image.")
 
-        differences = []
+        while True:
+            for y in range(random.randint(0, original_height)):
+                for x in range(random.randint(0, original_width)):
+                    art_pixel = art_image.getpixel((x, y))
+                    canvas_pixel = canvas_image.getpixel((start_x + x, start_y + y))
 
-        for y in range(original_height):
-            for x in range(original_width):
-                original_pixel = art_image.getpixel((x, y))
-                large_pixel = canvas_image.getpixel((start_x + x, start_y + y))
-
-                if original_pixel != large_pixel:
-                    hex_color = "#{:02x}{:02x}{:02x}".format(original_pixel[0], original_pixel[1],
-                                                             original_pixel[2]).upper()
-                    differences.append([start_x + x, start_y + y, hex_color])
-        return differences
+                    if art_pixel != canvas_pixel:
+                        hex_color = "#{:02x}{:02x}{:02x}".format(art_pixel[0], art_pixel[1],
+                                                                 art_pixel[2]).upper()
+                        return [start_x + x, start_y + y, hex_color]
 
     async def paint(self, http_client: aiohttp.ClientSession):
         try:
@@ -388,12 +386,14 @@ class Tapper:
                     canvas_url = r'https://image.notpx.app/api/v2/image'
                     if arts and (canvas_url is not None):
                         selected_art = random.choice(arts)
-                        art_image = await self.download_image(selected_art['image'], http_client)
-                        canvas_image = await self.download_image(canvas_url, http_client)
-                        diffs = self.find_differences(canvas_image=canvas_image, art_image=art_image,
+                        art_image, canvas_image = await asyncio.gather(
+                            self.download_image(selected_art['url'], http_client),
+                            self.download_image(canvas_url, http_client)
+                        )
+                        diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
                                                       start_x=int(selected_art['x']),
                                                       start_y=int(selected_art['y']))
-                        x, y, color = random.choice(diffs)
+                        x, y, color = diffs
                         pixel_id = get_pixel_id(x, y)
                     else:
                         color = random.choice(colors)

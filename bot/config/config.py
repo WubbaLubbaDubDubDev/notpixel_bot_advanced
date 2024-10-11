@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     SLEEP_TIME: list[int] = [426, 4260]
     START_DELAY: list[int] = [5, 25]
-    AUTO_TASK: bool = True
+    AUTO_TASK: bool = False
     TASKS_TO_DO: list[str] = ["paint20pixels", "x:notpixel", "x:notcoin", "channel:notcoin", "channel:notpixel_channel"]
     AUTO_DRAW: bool = True
     JOIN_TG_CHANNELS: bool = True
