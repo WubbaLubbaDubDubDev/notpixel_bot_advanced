@@ -33,13 +33,13 @@
 | **AUTO_DRAW**                      | Auto-drawing pixels (default - True)                            |
 | **AUTO_UPGRADE**                   | Auto-upgrading your mining stuff (default - True)               |
 | **CLAIM_REWARD**                   | Claim daily reward (default - True)                             |
-| **AUTO_TASK** DANGEROUS            | Auto tasks (default - False)                                    |
+| **AUTO_TASK** DANGEROUS            | Auto tasks (default - True)                                     |
 | **TASKS_TO_DO** AUTOTASK           | List of tasks for auto-task (default - all tasks)               |
-| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - False)          |
+| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - True)           |
 | **REF_ID**                         | Thing that goes after startapp=                                 |
 | **IGNORED_BOOSTS**                 | List of boosts to ignore (default - empty list)                 |
 | **IN_USE_SESSIONS_PATH**           | Path to the file where the currently active sessions are stored |
-| **PALETTE**                        | List of colors used for drawing (default - empty)               |
+| **PALETTE**                        | List of colors used for drawing                                 |
 | **DRAW_IMAGE**                     | Enable drawing of specified image (default - False)             |
 | **DRAWING_START_COORDINATES**      | Starting coordinates for drawing the image (e.g., [10, 5])      |
 | **IMAGE_PATH**                     | Path to the image file to be drawn                              |
