@@ -1,7 +1,8 @@
 import random
+
+from ..config import settings
 from ..utils.image_simplifier import ImageSimplifier
 from ..utils.pixel_mapper import PixelMapper
-from ..config.palette import hex_palette
 
 
 class PixelChain:
@@ -12,7 +13,7 @@ class PixelChain:
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
         self.ImageCoordinatesCalculator = PixelMapper((canvas_width, canvas_height))
-        self.ImageSimplifier = ImageSimplifier(hex_palette)
+        self.ImageSimplifier = ImageSimplifier(settings.PALETTE)
         self.all_pixels = self._get_all_pixels()
         self.unused_pixels = self.all_pixels
 

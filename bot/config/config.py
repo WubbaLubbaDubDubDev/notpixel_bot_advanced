@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     API_HASH: str
 
     SLEEP_TIME: list[int] = [426, 4260]
-    START_DELAY: list[int] = [1, 10]
+    START_DELAY: list[int] = [1, 240]
     ERROR_THRESHOLD: int = 5
     TIME_WINDOW_FOR_MAX_ERRORS: int = 240
     ERROR_THRESHOLD_SLEEP_DURATION: int = 3600
