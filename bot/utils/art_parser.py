@@ -17,15 +17,13 @@ class JSArtParserAsync:
                 response.raise_for_status()
                 return await response.text()
         except aiohttp.ClientError as e:
-            print(f"Failed to load HTML: {e}")
             return None
 
     def find_js_file(self, html_content):
-        soup = BeautifulSoup(html_content, 'html.parser')
-        scripts = soup.find_all('script', src=True)
-        for script in scripts:
-            if "index-" in script['src']:
-                return script['src']
+        pattern = re.compile(r'src=["\'](/assets/index-[A-Za-z0-9]+\.js)["\']')
+        match = pattern.search(html_content)
+        if match:
+            return match.group(1)
         return None
 
     async def download_js(self, js_url):

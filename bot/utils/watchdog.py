@@ -10,7 +10,8 @@ class Watchdog:
     if the number of errors exceeds a threshold within the given time period.
     """
 
-    def __init__(self, client_name, max_errors=5, time_window=timedelta(minutes=1), sleep_duration=timedelta(hours=1)):
+    def __init__(self, client_name, max_errors=5, time_window=timedelta(minutes=1), sleep_duration=timedelta(hours=1),
+                 each_error_sleep_time=timedelta(minutes=0.5)):
         """
         Initialize the watchdog with:
         :param max_errors: The maximum number of errors before sleeping.
@@ -22,6 +23,7 @@ class Watchdog:
         self.time_window = time_window
         self.sleep_duration = sleep_duration
         self.error_timestamps = []  # List to store error timestamps
+        self.each_error_sleep_time = each_error_sleep_time
 
     async def track_error(self):
         """
@@ -39,6 +41,13 @@ class Watchdog:
 
         # If the number of errors exceeds the threshold, trigger sleep
         if len(self.error_timestamps) >= self.max_errors:
-            logger.warning(f"{self.client_name} | Max errors reached. Sleeping for {self.sleep_duration.total_seconds()/60} min.")
+            logger.warning(f"{self.client_name} | Max errors reached. Sleeping for "
+                           f"<y>{self.sleep_duration.total_seconds()/60}</y> min.")
             await asyncio.sleep(self.sleep_duration.total_seconds())  # Use asyncio.sleep for non-blocking sleep
             self.error_timestamps.clear()  # Reset the error log after sleeping
+        else:
+            logger.warning(f"{self.client_name} | An error has been detected. Sleeping for"
+                           f" <y>{self.each_error_sleep_time.total_seconds()/60}</y> min.")
+            await asyncio.sleep(self.each_error_sleep_time.total_seconds())
+
+

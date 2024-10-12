@@ -59,6 +59,7 @@ class Tapper:
         self.squads_bot_peer = 'notgames_bot'
         self.watchdog = watchdog
         self.pixel_chain = pixel_chain
+        self.status = None
 
     async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
         if proxy:
@@ -149,7 +150,6 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error during Authorization: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
 
     async def join_squad(self, tg_web_data: str, proxy_conn, user_agent):
         headers_squads['User-Agent'] = user_agent
@@ -204,7 +204,6 @@ class Tapper:
             logger.warning(f"{self.session_name} | Bot overloaded retrying logging in")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=randint(3, 7))
             await self.login(http_client)
 
     async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
@@ -237,34 +236,37 @@ class Tapper:
             logger.error(f"{self.session_name} | Error while join tg channel: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
 
-    async def get_balance(self, http_client: aiohttp.ClientSession):
+    async def update_status(self, http_client: aiohttp.ClientSession):
         try:
-            balance_req = await http_client.get('https://notpx.app/api/v1/mining/status')
-            balance_req.raise_for_status()
-            balance_json = await balance_req.json()
-            return balance_json['userBalance']
+            status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
+            status_req.raise_for_status()
+            status_json = await status_req.json()
+            self.status = status_json
         except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when processing balance: {error}")
+            logger.error(f"{self.session_name} | Unknown error when update status: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
+
+    async def get_balance(self, http_client: aiohttp.ClientSession):
+        if not self.status:
+            await self.update_status(http_client=http_client)
+        else:
+            return self.status['userBalance']
 
     async def tasks(self, http_client: aiohttp.ClientSession):
         try:
-            stats = await http_client.get('https://notpx.app/api/v1/mining/status')
-            stats.raise_for_status()
-            stats_json = await stats.json()
-            done_task_list = stats_json['tasks'].keys()
+            await self.update_status(http_client)
+            done_task_list = self.status['tasks'].keys()
             if randint(0, 5) == 3:
                 league_statuses = {"bronze": [], "silver": ["leagueBonusSilver"],
                                    "gold": ["leagueBonusSilver", "leagueBonusGold"],
                                    "platinum": ["leagueBonusSilver", "leagueBonusGold", "leagueBonusPlatinum"]}
-                possible_upgrades = league_statuses.get(stats_json["league"], "Unknown")
+                possible_upgrades = league_statuses.get(self.status["league"], "Unknown")
                 if possible_upgrades == "Unknown":
                     logger.warning(
-                        f"{self.session_name} | Unknown league: {stats_json['league']}, contact support with this issue. Provide this log to make league known.")
+                        f"{self.session_name} | Unknown league: {self.status['league']},"
+                        f" contact support with this issue. Provide this log to make league known.")
                 else:
                     for new_league in possible_upgrades:
                         if new_league not in done_task_list:
@@ -276,6 +278,7 @@ class Tapper:
                             if status:
                                 logger.success(
                                     f"{self.session_name} | League requirement met. Upgraded to {new_league}.")
+                                await self.update_status(http_client)
                                 current_balance = await self.get_balance(http_client)
                                 logger.info(f"{self.session_name} | Current balance: {current_balance}")
                             else:
@@ -286,7 +289,7 @@ class Tapper:
                 task_name = task
                 if task not in done_task_list:
                     if task == 'paint20pixels':
-                        repaints_total = stats_json['repaintsTotal']
+                        repaints_total = self.status['repaintsTotal']
                         if repaints_total < 20:
                             continue
                     if ":" in task:
@@ -319,10 +322,7 @@ class Tapper:
     async def in_squad(self, http_client: aiohttp.ClientSession):
         try:
             logger.info(f"{self.session_name} | Checking if you're in squad")
-            stats_req = await http_client.get(f'https://notpx.app/api/v1/mining/status')
-            stats_req.raise_for_status()
-            stats_json = await stats_req.json()
-            league = stats_json["league"]
+            league = self.status["league"]
             squads_req = await http_client.get(f'https://notpx.app/api/v1/ratings/squads?league={league}')
             squads_req.raise_for_status()
             squads_json = await squads_req.json()
@@ -332,7 +332,6 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
 
     async def download_image(self, url, http_client):
         async with http_client.get(url) as response:
@@ -341,7 +340,7 @@ class Tapper:
                 image = Image.open(BytesIO(image_data)).convert('RGB') # Відкриваємо зображення
                 return image
             else:
-                print(f"Error downloading image: {response.status}")
+                logger.warning(f"{self.session_name}| Failed to download the image: {response.status}")
                 return None
 
     def find_difference(self, art_image, canvas_image, start_x, start_y):
@@ -351,9 +350,10 @@ class Tapper:
         if start_x + original_width > canvas_width or start_y + original_height > canvas_height:
             raise ValueError("Original image is out of bounds of the large image.")
 
+        random.seed(os.urandom(8))
         while True:
-            for y in range(random.randint(0, original_height)):
-                for x in range(random.randint(0, original_width)):
+            for y in range(random.randint(0, original_height), original_height):
+                for x in range(random.randint(0, original_width), original_width):
                     art_pixel = art_image.getpixel((x, y))
                     canvas_pixel = canvas_image.getpixel((start_x + x, start_y + y))
 
@@ -364,32 +364,28 @@ class Tapper:
 
     async def paint(self, http_client: aiohttp.ClientSession):
         try:
-            stats = await http_client.get('https://notpx.app/api/v1/mining/status')
-            stats.raise_for_status()
-            stats_json = await stats.json()
-            charges = stats_json['charges']
-            colors = ("#e46e6e", "#FFD635", "#7EED56", "#00CCC0", "#51E9F4", "#94B3FF", "#E4ABFF",
-                      "#FF99AA", "#FFB470", "#FFFFFF", "#BE0039", "#FF9600", "#00CC78", "#009EAA",
-                      "#3690EA", "#6A5CFF", "#B44AC0", "#FF3881", "#9C6926", "#898D90", "#6D001A",
-                      "#bf4300", "#00A368", "#00756F", "#2450A4", "#493AC1", "#811E9F", "#a00357",
-                      "#6D482F", "#000000")
+            await self.update_status(http_client=http_client)
+            charges = self.status['charges']
+            colors = settings.PALETTE
+            x = None
+            y = None
+            color = None
+            pixel_id = None
 
             for _ in range(charges):
-                previous_balance = await self.get_balance(http_client)
+                previous_balance = self.status['userBalance']
                 random.seed(os.urandom(8))
-                if self.pixel_chain:
+                if settings.DRAW_IMAGE:
                     x, y, color = self.pixel_chain.get_pixel()
                     pixel_id = get_pixel_id(x, y)
-                else:
+                elif settings.ENABLE_3X_REWARD:
                     image_parser = JSArtParserAsync(http_client)
                     arts = await image_parser.get_all_arts_data()
                     canvas_url = r'https://image.notpx.app/api/v2/image'
-                    if arts and (canvas_url is not None):
+                    canvas_image = await self.download_image(canvas_url, http_client)
+                    if arts and (canvas_image is not None):
                         selected_art = random.choice(arts)
-                        art_image, canvas_image = await asyncio.gather(
-                            self.download_image(selected_art['url'], http_client),
-                            self.download_image(canvas_url, http_client)
-                        )
+                        art_image = await self.download_image(selected_art['url'], http_client)
                         diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
                                                       start_x=int(selected_art['x']),
                                                       start_y=int(selected_art['y']))
@@ -401,23 +397,30 @@ class Tapper:
                         x, y = get_coordinates(pixel_id=pixel_id, width=1000)
                 paint_request = await http_client.post('https://notpx.app/api/v1/repaint/start',
                                                        json={"pixelId": pixel_id, "newColor": color})
-                delta = await self.get_balance(http_client) - previous_balance
+                paint_request.raise_for_status()
+                current_balance = (await paint_request.json())["balance"]
+                if current_balance:
+                    self.status['userBalance'] = current_balance
+                delta = None
+                if current_balance and previous_balance:
+                    delta = current_balance - previous_balance
+                    delta = round(delta, 1)
                 paint_request.raise_for_status()
                 logger.info(f"{self.session_name} | Painted on ({x}, {y}) with color {color}, reward: <e>{delta}</e>")
-                await asyncio.sleep(delay=randint(5, 10))
+                self.status['charges'] = self.status['charges'] - 1
+                await asyncio.sleep(delay=randint(10, 20))
 
         except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
+            logger.error(f"{self.session_name} | Unknown error when painting: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
+            if self.status['charges'] > 0:
+                await self.paint(http_client=http_client)
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
         try:
-            status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
-            status_req.raise_for_status()
-            status = await status_req.json()
-            boosts = status['boosts']
+            await self.update_status(http_client=http_client)
+            boosts = self.status['boosts']
             for name, level in sorted(boosts.items(), key=lambda item: item[1]):
                 try:
                     max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
@@ -436,20 +439,16 @@ class Tapper:
                     logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}")
                     if self.watchdog:
                         await self.watchdog.track_error()
-                    await asyncio.sleep(delay=3)
+
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
 
     async def claim(self, http_client: aiohttp.ClientSession):
         try:
             logger.info(f"{self.session_name} | Claiming mine")
-            response = await http_client.get(f'https://notpx.app/api/v1/mining/status')
-            response.raise_for_status()
-            response_json = await response.json()
-            await asyncio.sleep(delay=5)
+            response_json = None
             for _ in range(2):
                 try:
                     await asyncio.sleep(delay=60)
@@ -460,16 +459,13 @@ class Tapper:
                     logger.info(f"{self.session_name} | First claiming not always successful, retrying..")
                     if self.watchdog:
                         await self.watchdog.track_error()
-                    await asyncio.sleep(delay=5)
                 else:
                     break
-
             return response_json['claimed']
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
-            await asyncio.sleep(delay=3)
 
     async def run(self, user_agent: str, proxy: str | None) -> None:
         access_token_created_time = 0
@@ -506,6 +502,7 @@ class Tapper:
 
                     await asyncio.sleep(delay=randint(1, 3))
 
+                    await self.update_status(http_client=http_client)
                     balance = await self.get_balance(http_client)
                     logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
 
@@ -553,7 +550,10 @@ def get_link(code):
 
 
 async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, first_run: bool, pixel_chain=None):
-    watchdog = Watchdog(max_errors=5, time_window=timedelta(minutes=2), sleep_duration=timedelta(hours=1),
+    watchdog = Watchdog(max_errors=settings.ERROR_THRESHOLD,
+                        time_window=timedelta(seconds=settings.TIME_WINDOW_FOR_MAX_ERRORS),
+                        sleep_duration=timedelta(seconds=settings.ERROR_THRESHOLD_SLEEP_DURATION),
+                        each_error_sleep_time=timedelta(seconds=settings.SLEEP_AFTER_EACH_ERROR),
                         client_name=tg_client.name)
     try:
         await (Tapper(tg_client=tg_client, first_run=first_run, watchdog=watchdog, pixel_chain=pixel_chain)

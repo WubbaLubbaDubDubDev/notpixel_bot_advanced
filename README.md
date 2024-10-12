@@ -19,21 +19,32 @@
 | Pause feature on reaching maximum error threshold 🆕     |     ✅     |
 | Drawing specified image 🆕                               |     ✅     |
 | Fully automatic art parsing and smart pixel selection 🆕 |     ✅     |
-## [Settings]
-| Settings                       |                                 Description                                 |
-|--------------------------------|:---------------------------------------------------------------------------:|
-| **API_ID / API_HASH**          | Platform data from which to run the Telegram session (by default - android) |
-| **SLEEP_TIME**                 |            Sleep time between cycles (by default - [426, 4260])             |
-| **START_DELAY**                |           Delay between sessions at start (by default - [5, 25])            |
-| **AUTO_DRAW**                  |                    Auto-drawing pixels (default - True)                     |
-| **AUTO_UPGRADE**               |              Auto-upgrading your mining stuff (default - True)              |
-| **CLAIM_REWARD**               |                     Claim daily reward (default - True)                     |
-| **AUTO_TASK** DANGEROUS        |                        Auto tasks (default - False)                         |
-| **TASKS_TO_DO** AUTOTASK       |              List of tasks for auto-task (default - all tasks)              |
-| **REF_ID**                     |                       Thing that goes after startapp=                       |
-| **DRAW_IMAGE=**                |             Enable drawing of specified image (default - False)             |
-| **DRAWING_START_COORDINATES=** |         Starting coordinates for drawing the image (e.g., [10, 5])          |
-| **IMAGE_PATH=**                |                     Path to the image file to be drawn                      |
+
+## Settings  
+| **Parameter**                      | **Description**                                                 |
+|------------------------------------|:----------------------------------------------------------------|
+| **API_ID / API_HASH**              | Your API_ID / API_HASH                                          |
+| **SLEEP_TIME**                     | Sleep time between cycles (by default - [426, 4260])            |
+| **START_DELAY**                    | Delay between sessions at start (by default - [1, 240])         |
+| **ERROR_THRESHOLD**                | Maximum number of errors allowed before action (default - 5)    |
+| **TIME_WINDOW_FOR_MAX_ERRORS**     | Time duration in which the maximum error count can be reached   |
+| **ERROR_THRESHOLD_SLEEP_DURATION** | Sleep duration after reaching the maximum error threshold       |
+| **SLEEP_AFTER_EACH_ERROR**         | Sleep time after each individual error occurrence               |
+| **AUTO_DRAW**                      | Auto-drawing pixels (default - True)                            |
+| **AUTO_UPGRADE**                   | Auto-upgrading your mining stuff (default - True)               |
+| **CLAIM_REWARD**                   | Claim daily reward (default - True)                             |
+| **AUTO_TASK** DANGEROUS            | Auto tasks (default - False)                                    |
+| **TASKS_TO_DO** AUTOTASK           | List of tasks for auto-task (default - all tasks)               |
+| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - False)          |
+| **REF_ID**                         | Thing that goes after startapp=                                 |
+| **IGNORED_BOOSTS**                 | List of boosts to ignore (default - empty list)                 |
+| **IN_USE_SESSIONS_PATH**           | Path to the file where the currently active sessions are stored |
+| **PALETTE**                        | List of colors used for drawing (default - empty)               |
+| **DRAW_IMAGE**                     | Enable drawing of specified image (default - False)             |
+| **DRAWING_START_COORDINATES**      | Starting coordinates for drawing the image (e.g., [10, 5])      |
+| **IMAGE_PATH**                     | Path to the image file to be drawn                              |
+| **ENABLE_3X_REWARD**               | Enable or disable the 3x reward feature (default - True)        |
+
 
 ## Quick Start 📚
 
