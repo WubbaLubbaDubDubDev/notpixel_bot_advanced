@@ -9,7 +9,7 @@ from io import BytesIO
 from time import time
 from urllib.parse import unquote, quote
 from PIL import Image
-from aiocfscrape import CloudflareScraper
+import nest_asyncio
 
 from bot.config.upgrades import upgrades
 from datetime import datetime, timedelta
@@ -31,7 +31,8 @@ from bot.exceptions import InvalidSession
 from .headers import headers, headers_squads
 from random import randint, choices
 import certifi
-
+from functools import lru_cache
+nest_asyncio.apply()
 
 def get_coordinates(pixel_id, width=1000):
     y = (pixel_id - 1) // width
@@ -254,12 +255,12 @@ class Tapper:
             except aiohttp.ClientResponseError as error:
                 logger.warning(
                     f"{self.session_name} | Status update attempt {attempt} failed| Sleep <y>{retry_delay / 60}"
-                    f"</y> | {error.status}, {error.message}")
+                    f"</y> min | {error.status}, {error.message}")
                 await asyncio.sleep(retry_delay)  # Wait before retrying
 
             except Exception as error:
                 logger.error(
-                    f"{self.session_name} | Unexpected error when updating status| Sleep <y>{retry_delay / 60} "
+                    f"{self.session_name} | Unexpected error when updating status| Sleep <y>{retry_delay / 60}</y> "
                     f"min | {error}")
                 if self.watchdog:
                     await self.watchdog.track_error()
@@ -383,6 +384,13 @@ class Tapper:
                 logger.warning(f"{self.session_name} | Failed to download the image: {response.status}")
                 return None
 
+    @lru_cache(maxsize=32)
+    def download_image_lru(self, url: str, http_client: aiohttp.ClientSession,
+                           cache: bool = False):
+        result = asyncio.run(self.download_image(url=url, http_client=http_client, cache=cache))
+        return result
+
+
     def find_difference(self, art_image, canvas_image, start_x, start_y):
         original_width, original_height = art_image.size
         canvas_width, canvas_height = canvas_image.size
@@ -420,7 +428,7 @@ class Tapper:
             canvas_image = await self.download_image(canvas_url, http_client, cache=False)
             if arts and (canvas_image is not None):
                 selected_art = random.choice(arts)
-                art_image = await self.download_image(selected_art['url'], http_client, cache=True)
+                art_image = self.download_image_lru(selected_art['url'], http_client, cache=True)
                 diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
                                              start_x=int(selected_art['x']),
                                              start_y=int(selected_art['y']))

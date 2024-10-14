@@ -55,7 +55,10 @@ async def get_tg_client(session_name: str,
         raise ValueError("API_ID and API_HASH not found in the .env file.")
 
     # Create a Proxy object from the proxy string
-    proxy = Proxy.from_str(proxy=proxy)
+    if proxy:
+        proxy = Proxy.from_str(proxy=proxy)
+    else:
+        proxy = None
 
     # Form a dictionary with the necessary parameters
     proxy_dict = {
