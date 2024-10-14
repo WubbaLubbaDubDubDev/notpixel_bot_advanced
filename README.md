@@ -7,44 +7,46 @@
 ## 🔥🔥 Use PYTHON 3.10 🔥🔥
 
 ## Features  
-| Feature                                                  | Supported |
-|----------------------------------------------------------|:---------:|
-| Asynchronous processing                                  |     ✅     |
-| Proxy binding to session                                 |     ✅     |
-| User-Agent binding to session                            |     ✅     |
-| Support pyrogram .session                                |     ✅     |
-| Registration in bot                                      |     ✅     |
-| Auto-tasks                                               |     ✅     |
-| Daily rewards                                            |     ✅     |
-| Pause feature on reaching maximum error threshold 🆕     |     ✅     |
-| Drawing specified image 🆕                               |     ✅     |
-| Fully automatic art parsing and smart pixel selection 🆕 |     ✅     |
+| Feature                                                                                                                  | Supported |
+|--------------------------------------------------------------------------------------------------------------------------|:---------:|
+| Asynchronous processing                                                                                                  |     ✅     |
+| Proxy binding to session                                                                                                 |     ✅     |
+| User-Agent binding to session                                                                                            |     ✅     |
+| Support pyrogram .session                                                                                                |     ✅     |
+| Registration in bot                                                                                                      |     ✅     |
+| Auto-tasks                                                                                                               |     ✅     |
+| Daily rewards                                                                                                            |     ✅     |
+| Pause feature on reaching maximum error threshold 🆕                                                                     |     ✅     |
+| Drawing specified image 🆕                                                                                               |     ✅     |
+| Fully automatic art parsing and smart pixel selection 🆕                                                                 |     ✅     |
+| Automatically binds available proxies to new sessions 🆕                                                                 |     ✅     |
+| Automatically binds random device parameters (such as Android device model, version, and app version) to new sessions 🆕 |     ✅     |
 
 ## Settings  
-| **Parameter**                      | **Description**                                                 |
-|------------------------------------|:----------------------------------------------------------------|
-| **API_ID / API_HASH**              | Your API_ID / API_HASH                                          |
-| **SLEEP_TIME**                     | Sleep time between cycles (by default - [426, 4260])            |
-| **START_DELAY**                    | Delay between sessions at start (by default - [1, 240])         |
-| **ERROR_THRESHOLD**                | Maximum number of errors allowed before action (default - 5)    |
-| **TIME_WINDOW_FOR_MAX_ERRORS**     | Time duration in which the maximum error count can be reached   |
-| **ERROR_THRESHOLD_SLEEP_DURATION** | Sleep duration after reaching the maximum error threshold       |
-| **SLEEP_AFTER_EACH_ERROR**         | Sleep time after each individual error occurrence               |
-| **AUTO_DRAW**                      | Auto-drawing pixels (default - True)                            |
-| **AUTO_UPGRADE**                   | Auto-upgrading your mining stuff (default - True)               |
-| **CLAIM_REWARD**                   | Claim daily reward (default - True)                             |
-| **AUTO_TASK** DANGEROUS            | Auto tasks (default - True)                                     |
-| **TASKS_TO_DO** AUTOTASK           | List of tasks for auto-task (default - all tasks)               |
-| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - True)           |
-| **REF_ID**                         | Thing that goes after startapp=                                 |
-| **IGNORED_BOOSTS**                 | List of boosts to ignore (default - empty list)                 |
-| **IN_USE_SESSIONS_PATH**           | Path to the file where the currently active sessions are stored |
-| **PALETTE**                        | List of colors used for drawing                                 |
-| **DRAW_IMAGE**                     | Enable drawing of specified image (default - False)             |
-| **DRAWING_START_COORDINATES**      | Starting coordinates for drawing the image (e.g., [10, 5])      |
-| **IMAGE_PATH**                     | Path to the image file to be drawn                              |
-| **ENABLE_3X_REWARD**               | Enable or disable the 3x reward feature (default - True)        |
-
+| **Parameter**                      | **Description**                                                                        |
+|------------------------------------|:---------------------------------------------------------------------------------------|
+| **API_ID / API_HASH**              | Your API_ID / API_HASH                                                                 |
+| **SLEEP_TIME**                     | Sleep time between cycles (by default - [426, 4260])                                   |
+| **START_DELAY**                    | Delay between sessions at start (by default - [1, 240])                                |
+| **ERROR_THRESHOLD**                | Maximum number of errors allowed before action (default - 5)                           |
+| **TIME_WINDOW_FOR_MAX_ERRORS**     | Time duration in which the maximum error count can be reached                          |
+| **ERROR_THRESHOLD_SLEEP_DURATION** | Sleep duration after reaching the maximum error threshold                              |
+| **SLEEP_AFTER_EACH_ERROR**         | Sleep time after each individual error occurrence                                      |
+| **AUTO_DRAW**                      | Auto-drawing pixels (default - True)                                                   |
+| **AUTO_UPGRADE**                   | Auto-upgrading your mining stuff (default - True)                                      |
+| **CLAIM_REWARD**                   | Claim daily reward (default - True)                                                    |
+| **AUTO_TASK** DANGEROUS            | Auto tasks (default - True)                                                            |
+| **TASKS_TO_DO** AUTOTASK           | List of tasks for auto-task (default - all tasks)                                      |
+| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - True)                                  |
+| **REF_ID**                         | Thing that goes after startapp=                                                        |
+| **IGNORED_BOOSTS**                 | List of boosts to ignore (default - empty list)                                        |
+| **IN_USE_SESSIONS_PATH**           | Path to the file where the currently active sessions are stored                        |
+| **PALETTE**                        | List of colors used for drawing                                                        |
+| **DRAW_IMAGE**                     | Enable drawing of specified image (default - False)                                    |
+| **DRAWING_START_COORDINATES**      | Starting coordinates for drawing the image (e.g., [10, 5])                             |
+| **IMAGE_PATH**                     | Path to the image file to be drawn                                                     |
+| **ENABLE_3X_REWARD**               | Enable or disable the 3x reward feature (default - True)                               |
+| **AUTO_BIND_PROXIES_FROM_FILE**    | Automatically binds proxies from a proxies.txt file to new sessions (default - False). |
 
 ## Quick Start 📚
 

@@ -8,11 +8,11 @@ class Settings(BaseSettings):
     API_HASH: str
 
     SLEEP_TIME: list[int] = [426, 4260]
-    START_DELAY: list[int] = [1, 240]
+    START_DELAY: list[int] = [30, 60]
     ERROR_THRESHOLD: int = 5
-    TIME_WINDOW_FOR_MAX_ERRORS: int = 240
+    TIME_WINDOW_FOR_MAX_ERRORS: int = 600
     ERROR_THRESHOLD_SLEEP_DURATION: int = 3600
-    SLEEP_AFTER_EACH_ERROR: int = 30
+    SLEEP_AFTER_EACH_ERROR: int = 60
     AUTO_TASK: bool = False
     TASKS_TO_DO: list[str] = ["paint20pixels", "x:notpixel", "x:notcoin", "channel:notcoin", "channel:notpixel_channel"]
     AUTO_DRAW: bool = True
@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     DRAWING_START_COORDINATES: list[int] = [0, 0]
     IMAGE_PATH: str = "10x10.png"
     ENABLE_3X_REWARD: bool = True
+    AUTO_BIND_PROXIES_FROM_FILE: bool = False
 
 
 settings = Settings()

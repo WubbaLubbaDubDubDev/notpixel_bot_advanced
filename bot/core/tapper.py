@@ -4,10 +4,12 @@ import re
 import os
 import random
 import base64
+import ssl
 from io import BytesIO
 from time import time
 from urllib.parse import unquote, quote
 from PIL import Image
+from aiocfscrape import CloudflareScraper
 
 from bot.config.upgrades import upgrades
 from datetime import datetime, timedelta
@@ -28,6 +30,7 @@ from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
 from .headers import headers, headers_squads
 from random import randint, choices
+import certifi
 
 
 def get_coordinates(pixel_id, width=1000):
@@ -208,13 +211,11 @@ class Tapper:
 
     async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
         try:
-            response = await http_client.get(url='https://ipinfo.io/ip', timeout=aiohttp.ClientTimeout(20))
-            ip = (await response.text())
+            response = await http_client.get(url='https://api.ipify.org?format=json', timeout=aiohttp.ClientTimeout(5))
+            ip = (await response.json()).get('ip')
             logger.info(f"{self.session_name} | Proxy IP: {ip}")
         except Exception as error:
             logger.error(f"{self.session_name} | Proxy: {proxy} | Error: {error}")
-            if self.watchdog:
-                await self.watchdog.track_error()
 
     async def join_tg_channel(self, link: str):
         if not self.tg_client.is_connected:
@@ -238,32 +239,35 @@ class Tapper:
                 await self.watchdog.track_error()
 
     async def update_status(self, http_client: aiohttp.ClientSession):
-        retry_delay = 30
+        retry_delay = settings.SLEEP_AFTER_EACH_ERROR
+        max_retries = 2
 
-        for attempt in range(2):
+        for attempt in range(max_retries):
+            # Main loop for updating status
             try:
                 status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
                 status_req.raise_for_status()
                 status_json = await status_req.json()
                 self.status = status_json
-                return  # Exit early if successful
+                return  # Exit on successful status update
 
             except aiohttp.ClientResponseError as error:
                 logger.warning(
-                    f"{self.session_name} | Status update attempt {attempt + 1} failed| Sleep <y>{retry_delay/60} min |"
-                    f"</y>: {error.status}, {error.message}")
-                if attempt < 1:  # Only sleep before retrying the first time
-                    await asyncio.sleep(retry_delay)
+                    f"{self.session_name} | Status update attempt {attempt} failed| Sleep <y>{retry_delay / 60}"
+                    f"</y> | {error.status}, {error.message}")
+                await asyncio.sleep(retry_delay)  # Wait before retrying
 
             except Exception as error:
-                logger.error(f"{self.session_name} | Unexpected error when updating status| Sleep <y>{retry_delay/60} "
-                             f"min | {error}")
-                if attempt < 1:  # Only sleep before retrying the first time
-                    await asyncio.sleep(retry_delay)
+                logger.error(
+                    f"{self.session_name} | Unexpected error when updating status| Sleep <y>{retry_delay / 60} "
+                    f"min | {error}")
+                if self.watchdog:
+                    await self.watchdog.track_error()
 
         logger.error(f"{self.session_name} | Failed to update status after two attempts")
         if self.watchdog:
             await self.watchdog.track_error()
+        await self.update_status(http_client=http_client)
 
     async def get_balance(self, http_client: aiohttp.ClientSession):
         if not self.status:
@@ -350,14 +354,33 @@ class Tapper:
             if self.watchdog:
                 await self.watchdog.track_error()
 
-    async def download_image(self, url, http_client):
+    async def download_image(self, url: str, http_client: aiohttp.ClientSession,
+                             cache: bool = False):
+        download_folder = "app_data/images/"
+        # Отримати ім'я файлу з URL
+        file_name = os.path.basename(url)
+        file_path = os.path.join(download_folder, file_name)
+
+        # Перевірка наявності зображення в локальній папці, якщо кешування увімкнене
+        if cache and os.path.exists(file_path):
+            logger.info(f"{self.session_name} | Using cached image: {file_path}")
+            return Image.open(file_path).convert('RGB')  # Відкриваємо збережене зображення
+
+        # Завантаження зображення, якщо його немає у папці або кешування вимкнене
         async with http_client.get(url) as response:
             if response.status == 200:
                 image_data = await response.read()  # Читаємо вміст
-                image = Image.open(BytesIO(image_data)).convert('RGB') # Відкриваємо зображення
+                image = Image.open(BytesIO(image_data)).convert('RGB')  # Відкриваємо зображення
+
+                # Зберігаємо зображення у вказаній папці, якщо кешування увімкнене
+                if cache:
+                    os.makedirs(download_folder, exist_ok=True)  # Створюємо папку, якщо її немає
+                    image.save(file_path)  # Зберігаємо зображення
+                    logger.info(f"{self.session_name} | Image downloaded and saved to: {file_path}")
+
                 return image
             else:
-                logger.warning(f"{self.session_name}| Failed to download the image: {response.status}")
+                logger.warning(f"{self.session_name} | Failed to download the image: {response.status}")
                 return None
 
     def find_difference(self, art_image, canvas_image, start_x, start_y):
@@ -365,7 +388,7 @@ class Tapper:
         canvas_width, canvas_height = canvas_image.size
 
         if start_x + original_width > canvas_width or start_y + original_height > canvas_height:
-            raise ValueError("Original image is out of bounds of the large image.")
+            raise ValueError("Art image is out of bounds of the large image.")
 
         random.seed(os.urandom(8))
         while True:
@@ -394,10 +417,10 @@ class Tapper:
             image_parser = JSArtParserAsync(http_client)
             arts = await image_parser.get_all_arts_data()
             canvas_url = r'https://image.notpx.app/api/v2/image'
-            canvas_image = await self.download_image(canvas_url, http_client)
+            canvas_image = await self.download_image(canvas_url, http_client, cache=False)
             if arts and (canvas_image is not None):
                 selected_art = random.choice(arts)
-                art_image = await self.download_image(selected_art['url'], http_client)
+                art_image = await self.download_image(selected_art['url'], http_client, cache=True)
                 diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
                                              start_x=int(selected_art['x']),
                                              start_y=int(selected_art['y']))
@@ -412,26 +435,25 @@ class Tapper:
 
     async def paint(self, http_client: aiohttp.ClientSession):
         max_retries = 2  # Maximum number of retry attempts
-        retry_delay = 30  # Delay between retries in seconds
+        retry_delay = settings.SLEEP_AFTER_EACH_ERROR  # Delay between retries in seconds
 
         try:
             await self.update_status(http_client=http_client)
             charges = self.status['charges']
 
             for _ in range(charges):
-                previous_balance = self.status['userBalance']
-                x, y, color, pixel_id = await self.prepare_pixel_info(http_client=http_client)
-
-                for attempt in range(max_retries + 1):  # Including the initial attempt
+                for attempt in range(max_retries):
+                    previous_balance = self.status['userBalance']
+                    x, y, color, pixel_id = await self.prepare_pixel_info(http_client=http_client)
                     try:
                         paint_request = await http_client.post(
                             'https://notpx.app/api/v1/repaint/start',
                             json={"pixelId": pixel_id, "newColor": color}
                         )
                         paint_request.raise_for_status()
-                        current_balance = (await paint_request.json())["balance"]
 
                         # Update balance and charges
+                        current_balance = (await paint_request.json())["balance"]
                         if current_balance:
                             self.status['userBalance'] = current_balance
 
@@ -452,21 +474,26 @@ class Tapper:
                         break  # Exit retry loop if successful
                     except Exception as error:
                         logger.warning(
-                            f"{self.session_name} | Paint attempt {attempt + 1} failed. Retrying in "
+                            f"{self.session_name} | Paint attempt {attempt} failed. | Retrying in "
                             f"<y>{retry_delay / 60}</y> min | {error}"
                         )
+                        await self.update_status(http_client)
                         if attempt < max_retries:
                             await asyncio.sleep(retry_delay)
                         else:
                             logger.error(f"{self.session_name} | Maximum retry attempts reached for painting")
                             if self.watchdog:
                                 await self.watchdog.track_error()
+
                 await asyncio.sleep(delay=randint(10, 20))
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when painting: {error}")
             if self.watchdog:
                 await self.watchdog.track_error()
+
+        if self.status['charges'] > 0:
+            await self.paint(http_client=http_client)
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
         try:
@@ -497,18 +524,16 @@ class Tapper:
                 await self.watchdog.track_error()
 
     async def claim(self, http_client: aiohttp.ClientSession):
-        retry_delay = 120  # Sleep time in seconds
-
         for attempt in range(2):
             try:
-                await asyncio.sleep(delay=60)
                 response = await http_client.get('https://notpx.app/api/v1/mining/claim')
                 response.raise_for_status()
                 response_json = await response.json()
                 return response_json.get('claimed')  # Return early if successful
             except Exception as error:
-                logger.warning(f"{self.session_name} | Claim attempt {attempt + 1} | Sleep <y>{retry_delay/60}</y> min | {error}")
-                await asyncio.sleep(retry_delay)
+                logger.warning(f"{self.session_name} | Claim attempt {attempt} | {error}")
+                if self.watchdog:
+                    await self.watchdog.track_error()
 
         # If both attempts fail, log the error
         logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
@@ -516,21 +541,24 @@ class Tapper:
             await self.watchdog.track_error()
         return None
 
-    async def run(self, user_agent: str, proxy: str | None) -> None:
+    async def run(self, user_agent: str, start_delay: int, proxy: str | None) -> None:
         access_token_created_time = 0
-        proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
         headers["User-Agent"] = user_agent
 
-        async with aiohttp.ClientSession(headers=headers, connector=proxy_conn, trust_env=True) as http_client:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+        connector = ProxyConnector().from_url(url=proxy, rdns=True, ssl=ssl_context) if proxy \
+            else aiohttp.TCPConnector(ssl=ssl_context)
+
+        async with aiohttp.ClientSession(headers=headers, connector=connector, trust_env=True) as http_client:
             if proxy:
-                await self.check_proxy(http_client=http_client, proxy=proxy)
+                await self.check_proxy(http_client=http_client, proxy=connector)
 
             ref = settings.REF_ID
             link = get_link(ref)
 
-            delay = randint(settings.START_DELAY[0], settings.START_DELAY[1])
-            logger.info(f"{self.session_name} | Start delay {delay} seconds")
-            await asyncio.sleep(delay=delay)
+            logger.info(f"{self.session_name} | Start delay {start_delay} seconds")
+            await asyncio.sleep(delay=start_delay)
 
             token_live_time = randint(600, 800)
             while True:
@@ -567,7 +595,7 @@ class Tapper:
                             tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
                                                                      ref="cmVmPTQ2NDg2OTI0Ng==",
                                                                      short_name="squads")
-                            await self.join_squad(tg_web_data, proxy_conn, user_agent)
+                            await self.join_squad(tg_web_data, connector, user_agent)
                         else:
                             logger.success(f"{self.session_name} | You're already in squad")
 
@@ -600,7 +628,8 @@ def get_link(code):
     return link
 
 
-async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, first_run: bool, pixel_chain=None):
+async def run_tapper(tg_client: Client, user_agent: str, start_delay: int, proxy: str | None,
+                     first_run: bool, pixel_chain=None):
     watchdog = Watchdog(
         max_errors=settings.ERROR_THRESHOLD,
         time_window=timedelta(seconds=settings.TIME_WINDOW_FOR_MAX_ERRORS),
@@ -614,8 +643,7 @@ async def run_tapper(tg_client: Client, user_agent: str, proxy: str | None, firs
         watchdog=watchdog,
         pixel_chain=pixel_chain
     )
-
     try:
-        await tapper.run(user_agent=user_agent, proxy=proxy)
+        await tapper.run(user_agent=user_agent, proxy=proxy, start_delay=start_delay)
     except InvalidSession:
         logger.error(f"{tg_client.name} | Invalid Session")

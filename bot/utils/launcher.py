@@ -2,7 +2,6 @@ import asyncio
 import argparse
 from random import randint
 from typing import Any
-from better_proxy import Proxy
 from PIL import Image
 
 from bot.utils import logger
@@ -11,6 +10,7 @@ from bot.core.registrator import register_sessions, get_tg_client
 from bot.utils.accounts import Accounts
 from bot.utils.firstrun import load_session_names
 from bot.utils.pixel_chain import PixelChain
+from bot.utils.proxy_chain import ProxyChain
 from bot.config import settings
 
 art_work = """
@@ -37,9 +37,9 @@ Select an action:
     
 """
 
-
-def get_proxy(raw_proxy: str) -> str | None:
-    return Proxy.from_str(proxy=raw_proxy).as_url if raw_proxy else None
+proxy_chain = None
+if settings.AUTO_BIND_PROXIES_FROM_FILE:
+    proxy_chain = ProxyChain()
 
 
 async def process() -> None:
@@ -70,9 +70,9 @@ async def process() -> None:
     used_session_names = load_session_names()
 
     if action == 2:
-        await register_sessions()
+        await register_sessions(proxy_chain=proxy_chain)
     elif action == 1:
-        accounts = await Accounts().get_accounts()
+        accounts = await Accounts().get_accounts(proxy_chain=proxy_chain)
         await run_tasks(accounts=accounts, used_session_names=used_session_names)
 
 
@@ -83,13 +83,22 @@ async def run_tasks(accounts: [Any, Any, list], used_session_names: [str]):
         image = Image.open(settings.IMAGE_PATH)
         coordinates = settings.DRAWING_START_COORDINATES
         chain = PixelChain(image, coordinates[0], coordinates[1], 1000, 1000)
+    delay_between_account = 0
     for account in accounts:
-        session_name, user_agent, raw_proxy = account.values()
+        session_name = account.get("session_name")
+        user_agent = account.get('user_agent')
+        raw_proxy = account.get('proxy')
+        android_device = account.get('android_device')
+        android_version = account.get('android_version')
+        app_version = account.get('app_version')
         first_run = session_name not in used_session_names
-        tg_client = await get_tg_client(session_name=session_name, proxy=raw_proxy)
-        proxy = get_proxy(raw_proxy=raw_proxy)
-        tasks.append(asyncio.create_task(run_tapper(tg_client=tg_client, user_agent=user_agent, proxy=proxy,
-                                                    first_run=first_run, pixel_chain=chain)))
+        tg_client = await get_tg_client(session_name=session_name, proxy=raw_proxy,
+                                        android_device=android_device, android_version=android_version,
+                                        app_version=app_version)
+        tasks.append(asyncio.create_task(run_tapper(tg_client=tg_client, user_agent=user_agent, proxy=raw_proxy,
+                                                    first_run=first_run, pixel_chain=chain,
+                                                    start_delay=delay_between_account)))
+        delay_between_account = randint(delay_between_account + settings.START_DELAY[0], settings.START_DELAY[1] + delay_between_account)
         await asyncio.sleep(randint(5, 20))
 
     await asyncio.gather(*tasks)

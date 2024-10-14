@@ -6,7 +6,7 @@ annotated-types==0.6.0
 async-timeout==4.0.3
 attrs==23.2.0
 beautifulsoup4==4.12.3
-better-proxy==1.1.5
+better-proxy==1.2.0
 colorama==0.4.6
 DateTime==5.5
 frozenlist==1.4.1
@@ -36,3 +36,4 @@ aiofiles~=24.1.0
 brotli==1.1.0
 pillow==10.4.0
 numpy==2.1.1
+certifi>=0
