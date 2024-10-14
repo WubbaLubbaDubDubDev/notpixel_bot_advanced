@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     SLEEP_TIME: list[int] = [426, 4260]
     START_DELAY: list[int] = [30, 60]
-    ERROR_THRESHOLD: int = 5
+    ERROR_THRESHOLD: int = 3
     TIME_WINDOW_FOR_MAX_ERRORS: int = 600
     ERROR_THRESHOLD_SLEEP_DURATION: int = 3600
     SLEEP_AFTER_EACH_ERROR: int = 60
