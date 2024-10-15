@@ -98,7 +98,7 @@ async def run_tasks(accounts: [Any, Any, list], used_session_names: [str]):
         tasks.append(asyncio.create_task(run_tapper(tg_client=tg_client, user_agent=user_agent, proxy=raw_proxy,
                                                     first_run=first_run, pixel_chain=chain,
                                                     start_delay=delay_between_account)))
-        delay_between_account = randint(delay_between_account + settings.START_DELAY[0], settings.START_DELAY[1] + delay_between_account)
+        delay_between_account = randint(settings.START_DELAY[0], settings.START_DELAY[1])
         await asyncio.sleep(randint(5, 20))
 
     await asyncio.gather(*tasks)

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     IMAGE_PATH: str = "10x10.png"
     ENABLE_3X_REWARD: bool = True
     AUTO_BIND_PROXIES_FROM_FILE: bool = False
+    USE_UNPOPULAR_TEMPLATE: bool = True
 
 
 settings = Settings()

@@ -25,7 +25,7 @@ class Watchdog:
         self.error_timestamps = []  # List to store error timestamps
         self.each_error_sleep_time = each_error_sleep_time
 
-    async def track_error(self):
+    async def track_error(self, action=None, args=None):
         """
         Track a new error. If the number of errors within the time window exceeds the threshold,
         the system will sleep for the specified duration and reset the error log.
@@ -41,13 +41,15 @@ class Watchdog:
 
         # If the number of errors exceeds the threshold, trigger sleep
         if len(self.error_timestamps) >= self.max_errors:
-            logger.warning(f"{self.client_name} | Max errors reached. Sleeping for "
-                           f"<y>{self.sleep_duration.total_seconds()/60}</y> min.")
-            await asyncio.sleep(self.sleep_duration.total_seconds())  # Use asyncio.sleep for non-blocking sleep
-            self.error_timestamps.clear()  # Reset the error log after sleeping
-        else:
+        #    logger.warning(f"{self.client_name} | Max errors reached. Sleeping for "
+        #                   f"<y>{self.sleep_duration.total_seconds()/60}</y> min.")
+        #    await asyncio.sleep(self.sleep_duration.total_seconds())  # Use asyncio.sleep for non-blocking sleep
+        #    self.error_timestamps.clear()  # Reset the error log after sleeping
+        #else:
             logger.warning(f"{self.client_name} | An error has been detected. Sleeping for"
                            f" <y>{self.each_error_sleep_time.total_seconds()/60}</y> min.")
             await asyncio.sleep(self.each_error_sleep_time.total_seconds())
+            if action:
+                await action(**args)
 
 
