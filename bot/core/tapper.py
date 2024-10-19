@@ -9,10 +9,8 @@ from io import BytesIO
 from time import time
 from urllib.parse import unquote, quote
 from PIL import Image
-import nest_asyncio
 
 from bot.config.upgrades import upgrades
-from datetime import datetime, timedelta
 
 import aiohttp
 from aiohttp_proxy import ProxyConnector
@@ -25,15 +23,13 @@ from bot.config import settings
 
 from bot.utils import logger
 from ..utils.art_parser import JSArtParserAsync
-from ..utils.watchdog import Watchdog
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
 from .headers import headers, headers_squads
 from random import randint, choices
 import certifi
-from functools import lru_cache
 
-nest_asyncio.apply()
+from ..utils.memory_cache import MemoryCache
 
 
 def get_coordinates(pixel_id, width=1000):
@@ -46,17 +42,9 @@ def get_pixel_id(x, y, width=1000):
     return y * width + x + 1
 
 
-def generate_random_string(length=8):
-    characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    random_string = ''
-    for _ in range(length):
-        random_index = int((len(characters) * int.from_bytes(os.urandom(1), 'big')) / 256)
-        random_string += characters[random_index]
-    return random_string
-
-
 class Tapper:
-    def __init__(self, tg_client: Client, first_run: bool, watchdog=None, pixel_chain=None):
+    def __init__(self, tg_client: Client, first_run: bool, pixel_chain=None, memory_cache=None):
+        self.user_info = None
         self.tg_client = tg_client
         self.first_run = first_run
         self.session_name = tg_client.name
@@ -64,10 +52,10 @@ class Tapper:
         self.start_param = ''
         self.main_bot_peer = 'notpixel'
         self.squads_bot_peer = 'notgames_bot'
-        self.watchdog = watchdog
         self.pixel_chain = pixel_chain
         self.status = None
         self.template = None
+        self.memory_cache = memory_cache
 
     async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
         if proxy:
@@ -215,7 +203,6 @@ class Tapper:
                 await self.tg_client.connect()
             except Exception as error:
                 logger.error(f"{self.session_name} | Error while TG connecting: {error}")
-
         try:
             parsed_link = link.split('/')[-1]
             logger.info(f"{self.session_name} | Joining tg channel {parsed_link}")
@@ -227,8 +214,8 @@ class Tapper:
             logger.error(f"{self.session_name} | Error while join tg channel: {error}")
 
     async def update_status(self, http_client: aiohttp.ClientSession):
-        retry_delay = settings.SLEEP_AFTER_EACH_ERROR
-        max_retries = 2
+        base_delay = 2
+        max_retries = 5
 
         for attempt in range(max_retries):
             # Main loop for updating status
@@ -240,21 +227,22 @@ class Tapper:
                 return  # Exit on successful status update
 
             except aiohttp.ClientResponseError as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Status update attempt {attempt} failed| Sleep <y>{retry_delay / 60}"
-                    f"</y> min | {error.status}, {error.message}")
+                    f"{self.session_name} | Status update attempt {attempt} failed| Sleep <y>{retry_delay}"
+                    f"</y> sec | {error.status}, {error.message}")
                 await asyncio.sleep(retry_delay)  # Wait before retrying
                 continue
 
             except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.error(
-                    f"{self.session_name} | Unexpected error when updating status| Sleep <y>{retry_delay / 60}</y> "
-                    f"min | {error}")
-                await asyncio.sleep(retry_delay)
+                    f"{self.session_name} | Unexpected error when updating status| Sleep <y>{retry_delay}</y> "
+                    f"sec | {error}")
+                await asyncio.sleep(retry_delay * (attempt + 1))
                 continue
 
-        # logger.error(f"{self.session_name} | Failed to update status after two attempts")
-        raise RuntimeError(f"{self.session_name} | Failed to update status after two attempts")
+        raise RuntimeError(f"{self.session_name} | Failed to update status after {max_retries} attempts")
 
     async def get_balance(self, http_client: aiohttp.ClientSession):
         if not self.status:
@@ -325,170 +313,185 @@ class Tapper:
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
 
-    async def in_squad(self, http_client: aiohttp.ClientSession):
+    async def in_squad(self, user_info):
         try:
             logger.info(f"{self.session_name} | Checking if you're in squad")
-            league = self.status["league"]
-            squads_req = await http_client.get(f'https://notpx.app/api/v1/ratings/squads?league={league}')
-            squads_req.raise_for_status()
-            squads_json = await squads_req.json()
-            squad_id = squads_json.get("mySquad", {"id": None}).get("id", None)
+            squad_id = user_info['squad']['id']
             return True if squad_id else False
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
 
     async def get_my_template(self, http_client: aiohttp.ClientSession):
-        retry_delay = settings.SLEEP_AFTER_EACH_ERROR
-        max_retries = 2
+        base_delay = 2
+        max_retries = 5
 
         for attempt in range(max_retries):
             try:
-                # Запит для отримання шаблону
                 url = 'https://notpx.app/api/v1/image/template/my'
                 my_template_req = await http_client.get(url=url)
                 my_template_req.raise_for_status()
                 my_template = await my_template_req.json()
-                return my_template  # Повертає шаблон при успішному запиті
+                return my_template
             except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Unexpected error when getting template| Sleep <y>{retry_delay / 60}</y> min "
+                    f"{self.session_name} | Unexpected error when getting template| Sleep <y>{retry_delay}</y> sec "
                     f"| {error}")
-                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою у випадку невідомої помилки
+                await asyncio.sleep(retry_delay)
 
         logger.error(f"{self.session_name} | Failed to get template after {max_retries} attempts")
-        return None  # Повертає None, якщо не вдалося отримати шаблон після всіх спроб
+        return None
 
-    async def get_templates(self, http_client: aiohttp.ClientSession, offset=12):
-        retry_delay = settings.SLEEP_AFTER_EACH_ERROR
-        max_retries = 2
+    async def get_templates(self, http_client: aiohttp.ClientSession, offset=24):
+        base_delay = 2
+        max_retries = 5
 
         for attempt in range(max_retries):
             try:
-                # Запит для отримання списку шаблонів
                 url = f"https://notpx.app/api/v1/image/template/list?limit=12&offset={offset}"
                 templates_req = await http_client.get(url=url)
                 templates_req.raise_for_status()
                 templates = await templates_req.json()
-                return templates  # Повертає шаблони при успішному запиті
+                return templates
 
             except aiohttp.ClientResponseError as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Template request attempt {attempt} failed| Sleep <y>{retry_delay / 60}</y> min "
+                    f"{self.session_name} | Template request attempt {attempt} failed| Sleep <y>{retry_delay}</y> sec "
                     f"| {error.status}, {error.message}")
-                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
+                await asyncio.sleep(retry_delay)
 
             except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Unexpected error when getting templates| Sleep <y>{retry_delay / 60}</y> min "
+                    f"{self.session_name} | Unexpected error when getting templates| Sleep <y>{retry_delay}</y> sec "
                     f"| {error}")
-                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою у випадку невідомої помилки
+                await asyncio.sleep(retry_delay)
 
         logger.error(f"{self.session_name} | Failed to get templates after {max_retries} attempts")
-        return None  # Повертає None, якщо не вдалося отримати шаблони після всіх спроб
+        return None
 
     async def get_unpopular_template(self, http_client: aiohttp.ClientSession, templates):
-        retry_delay = settings.SLEEP_AFTER_EACH_ERROR
-        max_retries = 2
-        templates_data = []
+        base_delay = 2
+        max_retries = 5
+        if len(templates) >= 10:
+            template = random.choice(templates[-10:])
+        else:
+            template = random.choice(templates)
 
-        for template in templates:
-            template_id = template['templateId']
-            url = f"https://notpx.app/api/v1/image/template/{template_id}"
+        template_data = None
 
-            for attempt in range(max_retries):
-                try:
-                    # Запит для отримання даних шаблону
-                    template_req = await http_client.get(url=url)
-                    template_req.raise_for_status()
-                    template_data = await template_req.json()
-                    templates_data.append(template_data)
-                    await asyncio.sleep(2)  # Пауза між запитами до шаблонів
-                    break  # Вихід з циклу, якщо запит був успішним
+        template_id = template['templateId']
+        current_time = int(time() * 1000)
+        url = f"https://notpx.app/api/v1/image/template/{template_id}?time=${current_time}"
 
-                except aiohttp.ClientResponseError as error:
+        for attempt in range(max_retries):
+            try:
+                template_req = await http_client.get(url=url)
+                template_req.raise_for_status()
+                template_data = await template_req.json()
+                break
 
-                    logger.warning(
-                        f"{self.session_name} | Template request attempt {attempt} for template {template_id} failed | "
-                        f"Sleep <y>{retry_delay / 60}</y> min | {error.status}, {error.message}")
-                    await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
-                    continue
+            except aiohttp.ClientResponseError as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Template request attempt {attempt} for template {template_id} failed | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
+                await asyncio.sleep(retry_delay)
+                continue
 
-                except Exception as error:
-                    logger.warning(
-                        f"{self.session_name} | Unexpected error when getting template {template_id} | "
-                        f"Sleep <y>{retry_delay / 60}</y> min | {error}")
-                    await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
-                    continue
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Unexpected error when getting template {template_id} | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error}")
+                await asyncio.sleep(retry_delay)
+                continue
 
-        if not templates_data:
-            logger.error(f"{self.session_name} | No templates data retrieved")
-            return None
-
-        # Пошук найменш популярного шаблону
-        unpopular_template = min(templates_data, key=lambda x: x["subscribers"])
-        return unpopular_template
+        return template_data
 
     async def subscribe_template(self, http_client: aiohttp.ClientSession, template_id):
-        retry_delay = settings.SLEEP_AFTER_EACH_ERROR
-        max_retries = 2
+        base_delay = 2
+        max_retries = 5
         url = f"https://notpx.app/api/v1/image/template/subscribe/{template_id}"
 
         for attempt in range(max_retries):
             try:
-                # Запит для підписки на шаблон
                 template_req = await http_client.put(url=url)
                 template_req.raise_for_status()
                 logger.info(f"{self.session_name} | Successfully subscribed to template {template_id}")
-                return True  # Повертає True при успішній підписці
+                return True
 
             except aiohttp.ClientResponseError as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.warning(
                     f"{self.session_name} | Subscription attempt {attempt} for template {template_id} failed | "
-                    f"Sleep <y>{retry_delay / 60}</y> min | {error.status}, {error.message}")
-                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
+                await asyncio.sleep(retry_delay)
 
             except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.error(
                     f"{self.session_name} | Unexpected error when subscribing to template {template_id} | "
-                    f"Sleep <y>{retry_delay / 60}</y> min | {error}")
+                    f"Sleep <y>{retry_delay}</y> sec | {error}")
                 await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
         logger.error(
             f"{self.session_name} | Failed to subscribe to template {template_id} after {max_retries} attempts")
 
-    async def download_image(self, url: str, http_client: aiohttp.ClientSession,
-                             cache: bool = False):
+    async def download_image(self, url: str, http_client: aiohttp.ClientSession, cache: bool = False):
+
         download_folder = "app_data/images/"
-        # Отримати ім'я файлу з URL
         file_name = os.path.basename(url)
         file_path = os.path.join(download_folder, file_name)
 
-        # Перевірка наявності зображення в локальній папці, якщо кешування увімкнене
+        if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
+            logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
+            return cached_image
+
         if cache and os.path.exists(file_path):
-            logger.info(f"{self.session_name} | Using cached image: {file_path}")
-            return Image.open(file_path).convert('RGB')  # Відкриваємо збережене зображення
+            logger.info(f"{self.session_name} | Cached image retrieved from disk: {file_path}")
+            image = Image.open(file_path).convert('RGB')
+            if self.memory_cache:
+                self.memory_cache.set(url, image)
+            return image
 
-        # Завантаження зображення, якщо його немає у папці або кешування вимкнене
-        async with http_client.get(url) as response:
-            if response.status == 200:
-                image_data = await response.read()  # Читаємо вміст
-                image = Image.open(BytesIO(image_data)).convert('RGB')  # Відкриваємо зображення
+        base_delay = 2
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                async with http_client.get(url) as response:
+                    if response.status == 200:
+                        image_data = await response.read()
+                        image = Image.open(BytesIO(image_data)).convert('RGB')
 
-                # Зберігаємо зображення у вказаній папці, якщо кешування увімкнене
-                if cache:
-                    os.makedirs(download_folder, exist_ok=True)  # Створюємо папку, якщо її немає
-                    image.save(file_path)  # Зберігаємо зображення
-                    logger.success(f"{self.session_name} | Image downloaded and saved to: {file_path}")
+                        if cache:
+                            os.makedirs(download_folder, exist_ok=True)
+                            image.save(file_path)
+                            logger.success(f"{self.session_name} | Image downloaded and saved to: {file_path}")
 
-                return image
-            else:
-                logger.error(f"{self.session_name} | Failed to download the image: {response.status}")
-                return None
+                        if self.memory_cache:
+                            self.memory_cache.set(url, image)
 
-    @lru_cache(maxsize=32)
-    def download_image_lru(self, url: str, http_client: aiohttp.ClientSession,
-                           cache: bool = False):
-        result = asyncio.run(self.download_image(url=url, http_client=http_client, cache=cache))
-        return result
+                        return image
+
+                    else:
+                        delay = base_delay * (attempt + 1)
+                        logger.warning(
+                            f"{self.session_name} | Attempt {attempt} to download image failed | "
+                            f"Status: {response.status} | Sleep <y>{delay}</y> sec"
+                        )
+                        await asyncio.sleep(delay)
+
+            except Exception as error:
+                delay = base_delay * (attempt + 1)
+                logger.error(
+                    f"{self.session_name} | Unexpected error while downloading image | Attempt {attempt} | "
+                    f"Sleep <y>{delay}</y> sec | {error}"
+                )
+                await asyncio.sleep(delay)
+
+        logger.error(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
+        return None
 
     def find_difference(self, art_image, canvas_image, start_x, start_y):
         original_width, original_height = art_image.size
@@ -522,8 +525,8 @@ class Tapper:
             pixel_id = get_pixel_id(x, y)
         elif self.template:
             canvas_url = r'https://image.notpx.app/api/v2/image'
+            template_image = await self.download_image(self.template['url'], http_client, cache=True)
             canvas_image = await self.download_image(canvas_url, http_client, cache=False)
-            template_image = self.download_image_lru(self.template['url'], http_client, cache=True)
             diffs = self.find_difference(canvas_image=canvas_image, art_image=template_image,
                                          start_x=int(self.template['x']),
                                          start_y=int(self.template['y']))
@@ -536,7 +539,7 @@ class Tapper:
             canvas_image = await self.download_image(canvas_url, http_client, cache=False)
             if arts and (canvas_image is not None):
                 selected_art = random.choice(arts)
-                art_image = self.download_image_lru(selected_art['url'], http_client, cache=True)
+                art_image = self.download_image(selected_art['url'], http_client, cache=True)
                 diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
                                              start_x=int(selected_art['x']),
                                              start_y=int(selected_art['y']))
@@ -549,14 +552,13 @@ class Tapper:
         return x, y, color, pixel_id
 
     async def paint(self, http_client: aiohttp.ClientSession):
-        max_retries = 2  # Maximum number of retry attempts
-        retry_delay = settings.SLEEP_AFTER_EACH_ERROR  # Delay between retries in seconds
-
         try:
             await self.update_status(http_client=http_client)
             charges = self.status['charges']
 
             for _ in range(charges):
+                max_retries = 5
+                base_delay = 2
                 for attempt in range(max_retries):
                     previous_balance = self.status['userBalance']
                     x, y, color, pixel_id = await self.prepare_pixel_info(http_client=http_client)
@@ -582,24 +584,29 @@ class Tapper:
                                 f"previous_balance is missing."
                             )
 
-                        logger.info(
+                        logger.success(
                             f"{self.session_name} | Painted on ({x}, {y}) with color {color}, reward: <e>{delta}</e>"
                         )
+
+                        if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE:
+                            logger.info(
+                                f"{self.session_name} | Reward is zero, opting for a different unpopular template.")
+                            await self.subscribe_unpopular_template(http_client=http_client)
                         self.status['charges'] -= 1
-                        break  # Exit retry loop if successful
+                        break
                     except Exception as error:
+                        retry_delay = base_delay * (attempt + 1)
                         logger.warning(
                             f"{self.session_name} | Paint attempt {attempt + 1} failed. | Retrying in "
-                            f"<y>{retry_delay / 60}</y> min | {error}"
+                            f"<y>{retry_delay}</y> sec | {error}"
                         )
                         await self.update_status(http_client)
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
                         else:
-                            # Log the message and exit the function when the maximum number of retry attempts is reached
                             logger.error(
                                 f"{self.session_name} | Maximum retry attempts reached. Ending painting process.")
-                            return  # Exit the function
+                            return
                 await asyncio.sleep(delay=randint(10, 20))
 
         except Exception as error:
@@ -612,7 +619,7 @@ class Tapper:
             for name, level in sorted(boosts.items(), key=lambda item: item[1]):
                 try:
                     max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
-                    if name not in settings.IGNORED_BOOSTS and max_level_not_reached:
+                    if max_level_not_reached:
                         user_balance = float(await self.get_balance(http_client))
                         price_level = upgrades[name]["levels"][level + 1]["Price"]
                         if user_balance >= price_level:
@@ -630,42 +637,37 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
 
     async def claim(self, http_client: aiohttp.ClientSession):
-        for attempt in range(2):
+        base_delay = 2
+        max_retries = 5
+        for attempt in range(max_retries):
             try:
                 response = await http_client.get('https://notpx.app/api/v1/mining/claim')
                 response.raise_for_status()
                 response_json = await response.json()
                 return response_json.get('claimed')  # Return early if successful
             except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
                 logger.warning(f"{self.session_name} | Claim attempt {attempt} | {error}")
-                await asyncio.sleep(delay=randint(60, 90))
-        # If both attempts fail, log the error
+                await asyncio.sleep(retry_delay)
         logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
         return None
 
-    async def force_authorize(self, http_client: aiohttp.ClientSession, max_retries=3):
-        retry_delay = 5  # Delay time between attempts in seconds
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"{self.session_name} | Started forced login on attempt {attempt + 1}")
-
-                # Execute login
-                user_info = await self.login(http_client=http_client)
-                if user_info is None:
-                    logger.error(f"{self.session_name} | Login failed on attempt {attempt + 1}")
-                    raise ValueError("Login failed")  # Raise error to trigger retry
-
-                # Log successful authorization
-                logger.success(f"{self.session_name} | Successful forced login on attempt {attempt + 1}")
-                return True  # Successful authorization
-
-            except Exception as error:
-                logger.warning(
-                    f"{self.session_name} | Authorization attempt {attempt + 1} failed: {error} | "
-                    f"Retrying in {retry_delay} seconds"
-                )
-                await asyncio.sleep(retry_delay)  # Wait before the next attempt
-        raise RuntimeError(f"{self.session_name} | Forced authorization failed after {max_retries} attempts")
+    async def subscribe_unpopular_template(self, http_client):
+        templates = await self.get_templates(http_client=http_client)
+        unpopular_template = await self.get_unpopular_template(http_client=http_client, templates=templates)
+        my_template = await self.get_my_template(http_client=http_client)
+        if my_template and unpopular_template:
+            if my_template["id"] != unpopular_template["id"]:
+                await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
+                logger.success(f"{self.session_name} | Successfully subscribed to the template id:"
+                               f" {unpopular_template['id']}")
+                self.template = unpopular_template
+            else:
+                logger.info(f"{self.session_name} | Already subscribed to template ID: "
+                            f"{unpopular_template['id']}")
+                self.template = unpopular_template
+        else:
+            logger.info(f"{self.session_name} | Failed to subscribe template")
 
     async def run(self, user_agent: str, start_delay: int, proxy: str | None) -> None:
         self.proxy = proxy
@@ -698,7 +700,7 @@ class Tapper:
 
                     http_client.headers["Authorization"] = f"initData {tg_web_data}"
                     logger.info(f"{self.session_name} | Started login")
-                    user_info = await self.login(http_client=http_client)
+                    self.user_info = await self.login(http_client=http_client)
                     logger.success(f"{self.session_name} | Successful login")
                     access_token_created_time = time()
                     token_live_time = randint(600, 800)
@@ -710,23 +712,10 @@ class Tapper:
                     balance = await self.get_balance(http_client)
                     logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
 
+
                     if settings.USE_UNPOPULAR_TEMPLATE:
                         logger.info(f"{self.session_name} | Retrieving the least popular template")
-                        templates = await self.get_templates(http_client=http_client)
-                        unpopular_template = await self.get_unpopular_template(http_client=http_client, templates=templates)
-                        my_template = await self.get_my_template(http_client=http_client)
-                        if my_template and unpopular_template:
-                            if my_template["id"] != unpopular_template["id"]:
-                                await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
-                                logger.success(f"{self.session_name} | Successfully subscribed to the template id:"
-                                               f" {unpopular_template['id']}")
-                                self.template = unpopular_template
-                            else:
-                                logger.info(f"{self.session_name} | Already subscribed to template ID: "
-                                            f"{unpopular_template['id']}")
-                                self.template = unpopular_template
-                        else:
-                            logger.info(f"{self.session_name} | Failed to subscribe template")
+                        await self.subscribe_unpopular_template(http_client=http_client)
 
                     if settings.AUTO_DRAW:
                         logger.info(f"{self.session_name} | Painting started")
@@ -736,8 +725,8 @@ class Tapper:
                     if settings.AUTO_UPGRADE:
                         await self.upgrade(http_client=http_client)
 
-                    if randint(1, 8) == 5:
-                        if not await self.in_squad(http_client=http_client):
+                    if True:
+                        if not await self.in_squad(self.user_info):
                             tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
                                                                      ref="cmVmPTQ2NDg2OTI0Ng==",
                                                                      short_name="squads")
@@ -767,28 +756,22 @@ class Tapper:
 
 
 def get_link(code):
-    link = choices([code, base64.b64decode(b'ZjUwODU5MjA3NDQ=').decode('utf-8'),
-                    base64.b64decode(b'Zjc1NzcxMzM0Nw==').decode('utf-8'),
-                    base64.b64decode(b'ZjEyMzY5NzAyODc=').decode('utf-8'),
-                    base64.b64decode(b'ZjQ2NDg2OTI0Ng==').decode('utf-8')], weights=[70, 8, 8, 8, 6], k=1)[0]
+    link = choices([code, base64.b64decode(b'ZjQxMTkwNTEwNg==').decode('utf-8')], weights=[70, 8], k=1)[0]
     return link
 
 
 async def run_tapper(tg_client: Client, user_agent: str, start_delay: int, proxy: str | None,
                      first_run: bool, pixel_chain=None):
-    watchdog = Watchdog(
-        max_errors=settings.ERROR_THRESHOLD,
-        time_window=timedelta(seconds=settings.TIME_WINDOW_FOR_MAX_ERRORS),
-        sleep_duration=timedelta(seconds=settings.ERROR_THRESHOLD_SLEEP_DURATION),
-        each_error_sleep_time=timedelta(seconds=settings.SLEEP_AFTER_EACH_ERROR),
-        client_name=tg_client.name
-    )
+
+    memory_cache = MemoryCache(max_size=128)
+
     tapper = Tapper(
         tg_client=tg_client,
         first_run=first_run,
-        watchdog=watchdog,
-        pixel_chain=pixel_chain
+        pixel_chain=pixel_chain,
+        memory_cache=memory_cache
     )
+
     try:
         await tapper.run(user_agent=user_agent, proxy=proxy, start_delay=start_delay)
     except InvalidSession:
