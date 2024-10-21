@@ -7,6 +7,7 @@ import base64
 import ssl
 from io import BytesIO
 from time import time
+from colorama import Fore, Style, init
 from urllib.parse import unquote, quote
 from PIL import Image
 
@@ -31,6 +32,8 @@ import certifi
 
 from ..utils.memory_cache import MemoryCache
 
+init(autoreset=True)
+
 
 def get_coordinates(pixel_id, width=1000):
     y = (pixel_id - 1) // width
@@ -40,6 +43,27 @@ def get_coordinates(pixel_id, width=1000):
 
 def get_pixel_id(x, y, width=1000):
     return y * width + x + 1
+
+
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(r, g, b):
+    """Convert RGB tuple to hex color."""
+    return "#{:02x}{:02x}{:02x}".format(r, g, b).upper()
+
+
+def get_opposite_color(r, g, b):
+    """Calculate the opposite color based on RGB values."""
+    # To find the opposite color, we can use the HSV model as a rough approximation
+    # 180 degrees in hue (opposite on the color wheel)
+    hue = (r * 0.299 + g * 0.587 + b * 0.114)  # Calculate perceived brightness
+    if hue > 127.5:
+        return 0, 0, 0  # Dark text if the background is bright
+    else:
+        return 255, 255, 255  # Light text if the background is dark
 
 
 class Tapper:
@@ -157,8 +181,7 @@ class Tapper:
                 http_client.headers['x-auth-token'] = "Bearer null"
                 qwe = f'{{"webAppData": "{tg_web_data}"}}'
                 r = json.loads(qwe)
-                login_req = await http_client.post("https://api.notcoin.tg/auth/login",
-                                                   json=r)
+                login_req = await http_client.post("https://api.notcoin.tg/auth/login", json=r)
                 login_req.raise_for_status()
                 login_data = await login_req.json()
                 bearer_token = login_data.get("data", {}).get("accessToken", None)
@@ -342,7 +365,7 @@ class Tapper:
         logger.error(f"{self.session_name} | Failed to get template after {max_retries} attempts")
         return None
 
-    async def get_templates(self, http_client: aiohttp.ClientSession, offset=24):
+    async def get_templates(self, http_client: aiohttp.ClientSession, offset=48):
         base_delay = 2
         max_retries = 5
 
@@ -493,24 +516,44 @@ class Tapper:
         logger.error(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
         return None
 
-    def find_difference(self, art_image, canvas_image, start_x, start_y):
+    def find_difference(self, art_image, canvas_image, start_x, start_y, block_size=10):
         original_width, original_height = art_image.size
         canvas_width, canvas_height = canvas_image.size
 
         if start_x + original_width > canvas_width or start_y + original_height > canvas_height:
             raise ValueError("Art image is out of bounds of the large image.")
 
+        # Generate a random seed
         random.seed(os.urandom(8))
-        while True:
-            for y in range(random.randint(0, original_height), original_height):
-                for x in range(random.randint(0, original_width), original_width):
+
+        # Calculate the number of blocks in the x and y directions
+        blocks_x = (original_width + block_size - 1) // block_size
+        blocks_y = (original_height + block_size - 1) // block_size
+
+        # Generate a random order for block indices using Fisher-Yates shuffle
+        block_indices = [(bx, by) for by in range(blocks_y) for bx in range(blocks_x)]
+        random.shuffle(block_indices)  # Randomly shuffle the blocks
+
+        # Iterate over the shuffled blocks
+        for bx, by in block_indices:
+            # Calculate the block boundaries
+            start_block_x = bx * block_size
+            start_block_y = by * block_size
+            end_block_x = min(start_block_x + block_size, original_width)
+            end_block_y = min(start_block_y + block_size, original_height)
+
+            # Iterate over each pixel within the block
+            for y in range(start_block_y, end_block_y):
+                for x in range(start_block_x, end_block_x):
                     art_pixel = art_image.getpixel((x, y))
                     canvas_pixel = canvas_image.getpixel((start_x + x, start_y + y))
 
                     if art_pixel != canvas_pixel:
-                        hex_color = "#{:02x}{:02x}{:02x}".format(art_pixel[0], art_pixel[1],
-                                                                 art_pixel[2]).upper()
+                        hex_color = "#{:02X}{:02X}{:02X}".format(art_pixel[0], art_pixel[1], art_pixel[2])
                         return [start_x + x, start_y + y, hex_color]
+
+        # If no differences found, return None
+        return None
 
     async def prepare_pixel_info(self, http_client: aiohttp.ClientSession):
         x = None
@@ -526,6 +569,8 @@ class Tapper:
         elif self.template:
             canvas_url = r'https://image.notpx.app/api/v2/image'
             template_image = await self.download_image(self.template['url'], http_client, cache=True)
+            if template_image is None:
+                return None
             canvas_image = await self.download_image(canvas_url, http_client, cache=False)
             diffs = self.find_difference(canvas_image=canvas_image, art_image=template_image,
                                          start_x=int(self.template['x']),
@@ -561,7 +606,13 @@ class Tapper:
                 base_delay = 2
                 for attempt in range(max_retries):
                     previous_balance = self.status['userBalance']
-                    x, y, color, pixel_id = await self.prepare_pixel_info(http_client=http_client)
+                    new_pixel_info = await self.prepare_pixel_info(http_client=http_client)
+                    if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE:
+                        logger.info(
+                            f"{self.session_name} | Choosing a different template as the current one failed to load.")
+                        await self.subscribe_unpopular_template(http_client=http_client)
+                        continue
+                    x, y, color, pixel_id = new_pixel_info
                     try:
                         paint_request = await http_client.post(
                             'https://notpx.app/api/v1/repaint/start',
@@ -583,9 +634,13 @@ class Tapper:
                                 f"{self.session_name} | Failed to retrieve reward data: current_balance or "
                                 f"previous_balance is missing."
                             )
-
+                        r, g, b = hex_to_rgb(color)
+                        ansi_color = f'\033[48;2;{r};{g};{b}m'
+                        opposite_r, opposite_g, opposite_b = get_opposite_color(r, g, b)
+                        opposite_color = f"\033[38;2;{opposite_r};{opposite_g};{opposite_b}m"
                         logger.success(
-                            f"{self.session_name} | Painted on ({x}, {y}) with color {color}, reward: <e>{delta}</e>"
+                            f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
+                            f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
                         )
 
                         if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE:
@@ -659,8 +714,6 @@ class Tapper:
         if my_template and unpopular_template:
             if my_template["id"] != unpopular_template["id"]:
                 await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
-                logger.success(f"{self.session_name} | Successfully subscribed to the template id:"
-                               f" {unpopular_template['id']}")
                 self.template = unpopular_template
             else:
                 logger.info(f"{self.session_name} | Already subscribed to template ID: "
@@ -711,7 +764,6 @@ class Tapper:
                     await self.update_status(http_client=http_client)
                     balance = await self.get_balance(http_client)
                     logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
-
 
                     if settings.USE_UNPOPULAR_TEMPLATE:
                         logger.info(f"{self.session_name} | Retrieving the least popular template")
