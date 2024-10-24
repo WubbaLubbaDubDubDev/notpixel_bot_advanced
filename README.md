@@ -2,6 +2,8 @@
 
 ## ⚡⚡ Get 3x rewards with fully automatic art parsing and smart pixel selection 🆕 ⚡⚡
 
+
+
 ## Recommendation before use
 
 ## 🔥🔥 Use PYTHON 3.10 🔥🔥
@@ -21,33 +23,34 @@
 | Automatically binds available proxies to new sessions 🆕                                                                 |     ✅     |
 | Automatically binds random device parameters (such as Android device model, version, and app version) to new sessions 🆕 |     ✅     |
 | Automatically selects the least popular template for painting to maximize the chances of earning a 3x reward 🆕          |     ✅     |
+| Night mode, which puts the script to sleep during a defined period for a specified duration 🆕                           |     ✅     |
+| Action randomization 🆕                                                                                                  |     ✅     |
 
 ## Settings  
-| **Parameter**                      | **Description**                                                                             |
-|------------------------------------|:--------------------------------------------------------------------------------------------|
-| **API_ID / API_HASH**              | Your API_ID / API_HASH                                                                      |
-| **SLEEP_TIME**                     | Sleep time between cycles (by default - [426, 4260])                                        |
-| **START_DELAY**                    | Delay between sessions at start (by default - [1, 240])                                     |
-| **ERROR_THRESHOLD**                | Maximum number of errors allowed before action (default - 5)                                |
-| **TIME_WINDOW_FOR_MAX_ERRORS**     | Time duration in which the maximum error count can be reached                               |
-| **ERROR_THRESHOLD_SLEEP_DURATION** | Sleep duration after reaching the maximum error threshold                                   |
-| **SLEEP_AFTER_EACH_ERROR**         | Sleep time after each individual error occurrence                                           |
-| **AUTO_DRAW**                      | Auto-drawing pixels (default - True)                                                        |
-| **AUTO_UPGRADE**                   | Auto-upgrading your mining stuff (default - True)                                           |
-| **CLAIM_REWARD**                   | Claim daily reward (default - True)                                                         |
-| **AUTO_TASK** DANGEROUS            | Auto tasks (default - True)                                                                 |
-| **TASKS_TO_DO** AUTOTASK           | List of tasks for auto-task (default - all tasks)                                           |
-| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - True)                                       |
-| **REF_ID**                         | Thing that goes after startapp=                                                             |
-| **IGNORED_BOOSTS**                 | List of boosts to ignore (default - empty list)                                             |
-| **IN_USE_SESSIONS_PATH**           | Path to the file where the currently active sessions are stored                             |
-| **PALETTE**                        | List of colors used for drawing                                                             |
-| **DRAW_IMAGE**                     | Enable drawing of specified image (default - False)                                         |
-| **DRAWING_START_COORDINATES**      | Starting coordinates for drawing the image (e.g., [10, 5])                                  |
-| **IMAGE_PATH**                     | Path to the image file to be drawn                                                          |
-| **ENABLE_3X_REWARD**               | Enable or disable the 3x reward feature (default - True)                                    |
-| **AUTO_BIND_PROXIES_FROM_FILE**    | Automatically binds proxies from a proxies.txt file to new sessions (default - False).      |
-| **USE_UNPOPULAR_TEMPLATE**         | Enable or disable the selection of the least popular template for painting (default - True) |
+| **Parameter**                      | **Description**                                                            |
+|------------------------------------|:---------------------------------------------------------------------------|
+| **API_ID / API_HASH**              | Your API_ID / API_HASH                                                     |
+| **SLEEP_TIME**                     | Sleep time between cycles (default - [426, 4260])                          |
+| **NIGHT_MODE**                     | Enable night mode to avoid actions during specified hours (default - True) |
+| **NIGHT_SLEEP_START_HOURS**        | Night sleep start hours (default - [22, 2])                                |
+| **NIGHT_SLEEP_DURATION**           | Duration of night sleep in hours (default - [4, 8])                        |
+| **START_DELAY**                    | Delay before starting actions (default - [30, 60])                         |
+| **AUTO_TASK** DANGEROUS            | Automatically execute tasks (default - False)                              |
+| **TASKS_TO_DO** AUTOTASK           | List of tasks to perform automatically                                     |
+| **AUTO_DRAW**                      | Enable automatic pixel drawing (default - True)                            |
+| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - True)                      |
+| **CLAIM_REWARD**                   | Automatically claim rewards (default - True)                               |
+| **AUTO_UPGRADE**                   | Automatically upgrade items or settings (default - True)                   |
+| **REF_ID**                         | Referral ID                                                                |
+| **IN_USE_SESSIONS_PATH**           | Path to the file where used sessions are stored                            |
+| **AUTO_BIND_PROXIES_FROM_FILE**    | Automatically bind proxies from file (default - False)                     |
+| **DRAW_IMAGE**                     | Perform image drawing (default - False)                                    |
+| **DRAWING_START_COORDINATES**      | Starting coordinates for drawing (default - [0, 0])                        |
+| **IMAGE_PATH**                     | Path to the image file for drawing (default - "10x10.png")                 |
+| **PALETTE**                        | List of colors used for drawing                                            |
+| **ENABLE_3X_REWARD**               | Enable 3x rewards (default - True)                                         |
+| **USE_UNPOPULAR_TEMPLATE**         | Use an unpopular template for drawing (default - True)                     |
+
 
 ## Quick Start 📚
 
@@ -111,18 +114,38 @@ python main.py
 # 2 - Creates a session
 ```
 
-### Usages
-When you first launch the bot, create a session for it using the 'Creates a session' command. It will create a 'sessions' folder in which all accounts will be stored, as well as a file accounts.json with configurations.
-If you already have sessions, simply place them in a folder 'sessions' and run the clicker. During the startup process you will be able to configure the use of a proxy for each session.
-User-Agent is created automatically for each account.
+## Usages
+During the first launch of the bot, create a session for it using the "Creates a session" command. This will create a "sessions" folder where all accounts will be stored, along with an accounts.json file containing the configurations. If you already have sessions, simply place them in the "sessions" folder and run the clicker. During startup, you will be able to configure the use of a proxy for each session. User-Agent is automatically generated for each account.
 
-Here is an example of what accounts.json should look like:
+If you want the proxies to be automatically bound to each new session, set the AUTO_BIND_PROXIES_FROM_FILE parameter to True. In this case, a unique proxy will be selected for each session during the first launch, and if there are not enough proxies for all sessions, they will be used again. Make sure to upload your proxies to the proxies.txt file located in the /bot/config folder in the format type://user:pass@ip:port before doing this.
+
+Here are the two supported formats for the accounts.json file:
+
+### Simple Format:
 ```shell
 [
   {
     "session_name": "name_example",
     "user_agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.165 Mobile Safari/537.36",
-    "proxy": "type://user:pass:ip:port"  # "proxy": "" - if you dont use proxy
+    "proxy": "type://user:pass@ip:port"
   }
 ]
 ```
+
+### Recommended Format (applies to all newly created sessions):
+```shell
+[
+  {
+    "session_name": "name_example",
+    "user_agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.165 Mobile Safari/537.36",
+    "proxy": "type://user:pass@ip:port"
+    "android_device": "SM-A525F",
+    "android_version": "14",
+    "app_version": "Telegram Android 10.14.0"
+  }
+]
+```
+
+"proxy": "" - if you don't use a proxy
+
+The recommended format should be used for all new sessions, as it allows associating each session with a specific device matching the User-Agent. This helps avoid situations where the User-Agent represents one type of device (e.g., a Google Pixel smartphone), while the session itself is registered on another (e.g., Windows).

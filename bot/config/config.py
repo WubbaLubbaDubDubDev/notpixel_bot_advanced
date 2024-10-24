@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     API_HASH: str
 
     # Timing and delays settings
-    SLEEP_TIME: list[int] = [426, 4260]  # Sleep time in milliseconds (or seconds)
+    SLEEP_TIME: list[int] = [426, 4260]  # Sleep time in seconds
+
+    NIGHT_MODE: bool = True
+    NIGHT_SLEEP_START_HOURS: list[int] = [22, 2]
+    NIGHT_SLEEP_DURATION: list[int] = [4, 8]
     START_DELAY: list[int] = [30, 60]  # Delay before starting
 
     # Task automation

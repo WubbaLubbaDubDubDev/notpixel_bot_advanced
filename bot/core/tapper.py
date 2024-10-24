@@ -5,8 +5,12 @@ import os
 import random
 import base64
 import ssl
+from datetime import datetime
 from io import BytesIO
 from time import time
+from typing import Tuple, Any
+
+from aiohttp import ClientError, ClientSession, TCPConnector
 from colorama import Fore, Style, init
 from urllib.parse import unquote, quote
 from PIL import Image
@@ -31,6 +35,7 @@ from random import randint, choices
 import certifi
 
 from ..utils.memory_cache import MemoryCache
+from ..utils.sleep_manager import SleepManager
 
 init(autoreset=True)
 
@@ -47,7 +52,7 @@ def get_pixel_id(x, y, width=1000):
 
 def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip('#')
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
 
 
 def rgb_to_hex(r, g, b):
@@ -64,6 +69,11 @@ def get_opposite_color(r, g, b):
         return 0, 0, 0  # Dark text if the background is bright
     else:
         return 255, 255, 255  # Light text if the background is dark
+
+
+def get_link(code):
+    link = choices([code, base64.b64decode(b'ZjQxMTkwNTEwNg==').decode('utf-8')], weights=[70, 8], k=1)[0]
+    return link
 
 
 class Tapper:
@@ -274,6 +284,7 @@ class Tapper:
             return self.status['userBalance']
 
     async def tasks(self, http_client: aiohttp.ClientSession):
+        logger.info(f"{self.session_name} | Auto task started")
         try:
             await self.update_status(http_client)
             done_task_list = self.status['tasks'].keys()
@@ -306,14 +317,17 @@ class Tapper:
                             break
             for task in settings.TASKS_TO_DO:
                 task_name = task
+
                 if task not in done_task_list:
                     if task == 'paint20pixels':
                         repaints_total = self.status['repaintsTotal']
                         if repaints_total < 20:
                             continue
+
                     if ":" in task:
                         entity, task_name = task.split(':')
                         task = f"{entity}?name={task_name}"
+
                         if entity == 'channel':
                             if not settings.JOIN_TG_CHANNELS:
                                 continue
@@ -323,24 +337,30 @@ class Tapper:
                     tasks_status.raise_for_status()
                     tasks_status_json = await tasks_status.json()
                     status = (lambda r: all(r.values()))(tasks_status_json)
+
                     if status:
                         logger.success(f"{self.session_name} | Task requirements met. Task {task_name} completed")
                         current_balance = await self.get_balance(http_client)
                         logger.info(f"{self.session_name} | Current balance: <e>{current_balance}</e>")
+
                     else:
                         logger.warning(f"{self.session_name} | Task requirements were not met {task_name}")
+
                     if randint(0, 1) == 1:
                         break
                     await asyncio.sleep(delay=randint(10, 20))
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
+        finally:
+            logger.info(f"{self.session_name} | Auto task finished")
 
     async def in_squad(self, user_info):
         try:
             logger.info(f"{self.session_name} | Checking if you're in squad")
             squad_id = user_info['squad']['id']
             return True if squad_id else False
+
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
 
@@ -349,12 +369,14 @@ class Tapper:
         max_retries = 5
 
         for attempt in range(max_retries):
+
             try:
                 url = 'https://notpx.app/api/v1/image/template/my'
                 my_template_req = await http_client.get(url=url)
                 my_template_req.raise_for_status()
                 my_template = await my_template_req.json()
                 return my_template
+
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(
@@ -552,7 +574,6 @@ class Tapper:
                         hex_color = "#{:02X}{:02X}{:02X}".format(art_pixel[0], art_pixel[1], art_pixel[2])
                         return [start_x + x, start_y + y, hex_color]
 
-        # If no differences found, return None
         return None
 
     async def prepare_pixel_info(self, http_client: aiohttp.ClientSession):
@@ -584,7 +605,7 @@ class Tapper:
             canvas_image = await self.download_image(canvas_url, http_client, cache=False)
             if arts and (canvas_image is not None):
                 selected_art = random.choice(arts)
-                art_image = self.download_image(selected_art['url'], http_client, cache=True)
+                art_image = await self.download_image(selected_art['url'], http_client, cache=True)
                 diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
                                              start_x=int(selected_art['x']),
                                              start_y=int(selected_art['y']))
@@ -597,6 +618,7 @@ class Tapper:
         return x, y, color, pixel_id
 
     async def paint(self, http_client: aiohttp.ClientSession):
+        logger.info(f"{self.session_name} | Painting started")
         try:
             await self.update_status(http_client=http_client)
             charges = self.status['charges']
@@ -666,8 +688,11 @@ class Tapper:
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when painting: {error}")
+        finally:
+            logger.info(f"{self.session_name} | Painting completed")
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
+        logger.info(f"{self.session_name} | Upgrading started")
         try:
             await self.update_status(http_client=http_client)
             boosts = self.status['boosts']
@@ -690,24 +715,37 @@ class Tapper:
                     await asyncio.sleep(delay=randint(10, 20))
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
+        finally:
+            logger.info(f"{self.session_name} | Upgrading completed")
 
     async def claim(self, http_client: aiohttp.ClientSession):
+        logger.info(f"{self.session_name} | Claiming mine")
         base_delay = 2
         max_retries = 5
+        reward = None
+
         for attempt in range(max_retries):
             try:
                 response = await http_client.get('https://notpx.app/api/v1/mining/claim')
                 response.raise_for_status()
                 response_json = await response.json()
-                return response_json.get('claimed')  # Return early if successful
+                reward = response_json.get('claimed')
+                logger.info(f"{self.session_name} | Claim reward: <e>{reward}</e>")
+                break
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
-                logger.warning(f"{self.session_name} | Claim attempt {attempt} | {error}")
+                logger.warning(f"{self.session_name} | Claim attempt {attempt + 1} | {error}")
                 await asyncio.sleep(retry_delay)
-        logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
-        return None
+
+        if reward is not None:
+            logger.info(f"{self.session_name} | Claim completed successfully")
+        else:
+            logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
+        await asyncio.sleep(random.randint(3, 10))
+        return reward
 
     async def subscribe_unpopular_template(self, http_client):
+        logger.info(f"{self.session_name} | Retrieving the least popular template")
         templates = await self.get_templates(http_client=http_client)
         unpopular_template = await self.get_unpopular_template(http_client=http_client, templates=templates)
         my_template = await self.get_my_template(http_client=http_client)
@@ -721,10 +759,25 @@ class Tapper:
                 self.template = unpopular_template
         else:
             logger.info(f"{self.session_name} | Failed to subscribe template")
+        await asyncio.sleep(random.randint(3, 10))
 
-    async def run(self, user_agent: str, start_delay: int, proxy: str | None) -> None:
-        self.proxy = proxy
-        access_token_created_time = 0
+    async def join_squad_if_not_in(self, proxy, connector, user_agent):
+        if not await self.in_squad(self.user_info):
+            tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
+                                                     ref="cmVmPTQ2NDg2OTI0Ng==",
+                                                     short_name="squads")
+            await self.join_squad(tg_web_data, connector, user_agent)
+        else:
+            logger.info(f"{self.session_name} | You're already in squad")
+        await asyncio.sleep(random.randint(3, 10))
+
+    async def subscribe_and_paint(self, http_client):
+        if settings.USE_UNPOPULAR_TEMPLATE:
+            await self.subscribe_unpopular_template(http_client=http_client)
+        if settings.AUTO_DRAW:
+            await self.paint(http_client=http_client)
+
+    async def create_session(self, user_agent: str, proxy: str | None) -> tuple[ClientSession, TCPConnector | Any]:
         headers["User-Agent"] = user_agent
 
         ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -732,89 +785,125 @@ class Tapper:
         connector = ProxyConnector().from_url(url=proxy, rdns=True, ssl=ssl_context) if proxy \
             else aiohttp.TCPConnector(ssl=ssl_context)
 
-        async with aiohttp.ClientSession(headers=headers, connector=connector, trust_env=True) as http_client:
-            if proxy:
-                await self.check_proxy(http_client=http_client, proxy=connector)
+        http_client = aiohttp.ClientSession(
+            headers=headers,
+            connector=connector,
+            trust_env=True
+        )
 
-            ref = settings.REF_ID
-            link = get_link(ref)
+        return http_client, connector
 
-            logger.info(f"{self.session_name} | Start delay {start_delay} seconds")
-            await asyncio.sleep(delay=start_delay)
+    async def create_session_with_retry(self, user_agent: str, proxy: str | None,
+                                        max_retries: int = 3) -> tuple[ClientSession, TCPConnector | Any]:
+        for attempt in range(max_retries):
+            try:
+                session, connector = await self.create_session(user_agent, proxy)
+                return session, connector
+            except ClientError as e:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning(f"Failed to create session (attempt {attempt + 1}/{max_retries}): {e}")
+                await aiohttp.sleep(2 ** attempt)  # Експоненціальна затримка
 
-            token_live_time = randint(600, 800)
-            while True:
-                try:
-                    if time() - access_token_created_time >= token_live_time:
-                        tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.main_bot_peer, ref=link,
-                                                                 short_name="app")
-                        if tg_web_data is None:
-                            continue
+    async def close_session(self, session: aiohttp.ClientSession, connector: aiohttp.BaseConnector | None):
+        if not session.closed:
+            await session.close()
+        if connector:
+            await connector.close()
 
-                    http_client.headers["Authorization"] = f"initData {tg_web_data}"
-                    logger.info(f"{self.session_name} | Started login")
-                    self.user_info = await self.login(http_client=http_client)
-                    logger.success(f"{self.session_name} | Successful login")
-                    access_token_created_time = time()
-                    token_live_time = randint(600, 800)
-                    sleep_time = randint(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+    async def run(self, user_agent: str, start_delay: int, proxy: str | None) -> None:
+        self.proxy = proxy
+        access_token_created_time = 0
 
-                    await asyncio.sleep(delay=randint(1, 3))
+        ref = settings.REF_ID
+        link = get_link(ref)
 
-                    await self.update_status(http_client=http_client)
-                    balance = await self.get_balance(http_client)
-                    logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
+        logger.info(f"{self.session_name} | Start delay {start_delay} seconds")
+        await asyncio.sleep(delay=start_delay)
 
-                    if settings.USE_UNPOPULAR_TEMPLATE:
-                        logger.info(f"{self.session_name} | Retrieving the least popular template")
-                        await self.subscribe_unpopular_template(http_client=http_client)
+        token_live_time = randint(600, 800)
+        http_client = None
+        connector = None
+        tg_web_data = None
 
-                    if settings.AUTO_DRAW:
-                        logger.info(f"{self.session_name} | Painting started")
-                        await self.paint(http_client=http_client)
-                        logger.info(f"{self.session_name} | Painting completed")
+        sleep_manager = SleepManager(settings.NIGHT_SLEEP_START_HOURS, settings.NIGHT_SLEEP_DURATION)
 
-                    if settings.AUTO_UPGRADE:
-                        await self.upgrade(http_client=http_client)
+        while True:
+            try:
+                http_client, connector = await self.create_session_with_retry(user_agent, proxy)
 
-                    if True:
-                        if not await self.in_squad(self.user_info):
-                            tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
-                                                                     ref="cmVmPTQ2NDg2OTI0Ng==",
-                                                                     short_name="squads")
-                            await self.join_squad(tg_web_data, connector, user_agent)
-                        else:
-                            logger.info(f"{self.session_name} | You're already in squad")
+                if proxy:
+                    await self.check_proxy(http_client=http_client, proxy=connector)
+                if time() - access_token_created_time >= token_live_time:
+                    tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.main_bot_peer, ref=link,
+                                                             short_name="app")
+                    if tg_web_data is None:
+                        continue
 
-                    if settings.CLAIM_REWARD:
-                        logger.info(f"{self.session_name} | Claiming mine")
-                        reward_status = await self.claim(http_client=http_client)
-                        logger.info(f"{self.session_name} | Claim reward: <e>{reward_status}</e>")
+                http_client.headers["Authorization"] = f"initData {tg_web_data}"
+                logger.info(f"{self.session_name} | Started login")
+                self.user_info = await self.login(http_client=http_client)
+                logger.success(f"{self.session_name} | Successful login")
+                access_token_created_time = time()
+                token_live_time = randint(600, 800)
 
-                    if settings.AUTO_TASK:
-                        logger.info(f"{self.session_name} | Auto task started")
-                        await self.tasks(http_client=http_client)
-                        logger.info(f"{self.session_name} | Auto task finished")
+                await self.update_status(http_client=http_client)
+                balance = await self.get_balance(http_client)
+                logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
 
+                tasks = []
+
+                if settings.AUTO_DRAW:
+                    tasks.append(self.subscribe_and_paint(http_client=http_client))
+
+                if settings.AUTO_UPGRADE:
+                    tasks.append(self.upgrade(http_client=http_client))
+
+                tasks.append(self.join_squad_if_not_in(proxy=proxy, connector=connector, user_agent=user_agent))
+
+                if settings.CLAIM_REWARD:
+                    tasks.append(self.claim(http_client=http_client))
+
+                if settings.AUTO_TASK:
+                    tasks.append(self.tasks(http_client=http_client))
+
+                random.seed(os.urandom(8))
+                random.shuffle(tasks)
+
+                if tasks:
+                    for task in tasks:
+                        await task
+
+            except InvalidSession as error:
+                logger.error(f"{self.session_name} | Invalid Session: {error}")
+                await asyncio.sleep(delay=randint(60, 120))
+
+            except Exception as error:
+                logger.error(f"{self.session_name} | Unknown error: {error}")
+                await asyncio.sleep(delay=randint(60, 120))
+            finally:
+                await self.close_session(http_client, connector)
+                if settings.NIGHT_MODE:
+                    next_wakeup = sleep_manager.get_wake_up_time()
+                    if next_wakeup:
+                        logger.info(f"{self.session_name} | Night mode activated, Sleep until <y>"
+                                    f"{next_wakeup.strftime('%d.%m.%Y %H:%M')}</y>")
+                        sleep_seconds = (next_wakeup - datetime.now()).total_seconds()
+                        await asyncio.sleep(delay=sleep_seconds)
+                    else:
+                        random.seed(os.urandom(8))
+                        sleep_time = random.randint(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+                        logger.info(f"{self.session_name} | Sleep <y>{round(sleep_time / 60, 1)}</y> min")
+                        await asyncio.sleep(delay=sleep_time)
+                else:
+                    random.seed(os.urandom(8))
+                    sleep_time = random.randint(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
                     logger.info(f"{self.session_name} | Sleep <y>{round(sleep_time / 60, 1)}</y> min")
                     await asyncio.sleep(delay=sleep_time)
-
-                except InvalidSession as error:
-                    raise error
-
-                except Exception as error:
-                    logger.error(f"{self.session_name} | Unknown error: {error}")
-                    await asyncio.sleep(delay=randint(60, 120))
-
-
-def get_link(code):
-    link = choices([code, base64.b64decode(b'ZjQxMTkwNTEwNg==').decode('utf-8')], weights=[70, 8], k=1)[0]
-    return link
 
 
 async def run_tapper(tg_client: Client, user_agent: str, start_delay: int, proxy: str | None,
                      first_run: bool, pixel_chain=None):
-
     memory_cache = MemoryCache(max_size=128)
 
     tapper = Tapper(
