@@ -9,7 +9,9 @@ from datetime import datetime
 from io import BytesIO
 from time import time
 from typing import Tuple, Any
+import requests
 
+from aiocfscrape import CloudflareScraper
 from aiohttp import ClientError, ClientSession, TCPConnector
 from colorama import Fore, Style, init
 from urllib.parse import unquote, quote
@@ -30,7 +32,7 @@ from bot.utils import logger
 from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
-from .headers import headers, headers_squads
+from .headers import headers, headers_squads, headers_image
 from random import randint, choices
 import certifi
 
@@ -77,7 +79,8 @@ def get_link(code):
 
 
 class Tapper:
-    def __init__(self, tg_client: Client, first_run: bool, pixel_chain=None, memory_cache=None):
+    def __init__(self, tg_client: Client, first_run: bool, pixel_chain=None, memory_cache=None, user_agent=None):
+        self.init_data = None
         self.user_info = None
         self.tg_client = tg_client
         self.first_run = first_run
@@ -90,6 +93,7 @@ class Tapper:
         self.status = None
         self.template = None
         self.memory_cache = memory_cache
+        self.user_agent = user_agent
 
     async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
         if proxy:
@@ -427,8 +431,9 @@ class Tapper:
         template_data = None
 
         template_id = template['templateId']
-        current_time = int(time() * 1000)
-        url = f"https://notpx.app/api/v1/image/template/{template_id}?time=${current_time}"
+        #current_time = int(time() * 1000)
+        #url = f"https://notpx.app/api/v1/image/template/{template_id}?time=${current_time}"
+        url = f"https://notpx.app/api/v1/image/template/{template_id}"
 
         for attempt in range(max_retries):
             try:
@@ -452,7 +457,6 @@ class Tapper:
                     f"Sleep <y>{retry_delay}</y> sec | {error}")
                 await asyncio.sleep(retry_delay)
                 continue
-
         return template_data
 
     async def subscribe_template(self, http_client: aiohttp.ClientSession, template_id):
@@ -484,10 +488,10 @@ class Tapper:
             f"{self.session_name} | Failed to subscribe to template {template_id} after {max_retries} attempts")
 
     async def download_image(self, url: str, http_client: aiohttp.ClientSession, cache: bool = False):
-
         download_folder = "app_data/images/"
         file_name = os.path.basename(url)
         file_path = os.path.join(download_folder, file_name)
+        headers_image['User-Agent'] = self.user_agent
 
         if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
             logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
@@ -504,29 +508,32 @@ class Tapper:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                async with http_client.get(url) as response:
-                    if response.status == 200:
-                        image_data = await response.read()
-                        image = Image.open(BytesIO(image_data)).convert('RGB')
+                proxies = None
+                if self.proxy:
+                    proxies = {
+                        'http': self.proxy,
+                        'https': self.proxy,
+                    }
+                response = requests.get(url, proxies=proxies)
+                if response.status_code == 200:
+                    image_data = response.content
+                    image = Image.open(BytesIO(image_data)).convert('RGB')
 
-                        if cache:
-                            os.makedirs(download_folder, exist_ok=True)
-                            image.save(file_path)
-                            logger.success(f"{self.session_name} | Image downloaded and saved to: {file_path}")
+                    if cache:
+                        os.makedirs(download_folder, exist_ok=True)
+                        image.save(file_path)
+                        logger.success(f"{self.session_name} | Image downloaded and saved to: {file_path}")
 
-                        if self.memory_cache:
-                            self.memory_cache.set(url, image)
-
-                        return image
-
-                    else:
-                        delay = base_delay * (attempt + 1)
-                        logger.warning(
-                            f"{self.session_name} | Attempt {attempt} to download image failed | "
-                            f"Status: {response.status} | Sleep <y>{delay}</y> sec"
-                        )
-                        await asyncio.sleep(delay)
-
+                    if self.memory_cache:
+                        self.memory_cache.set(url, image)
+                    return image
+                else:
+                    delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Attempt {attempt} to download image failed | "
+                        f"Status: {response.status_code} | Sleep <y>{delay}</y> sec"
+                    )
+                    await asyncio.sleep(delay)
             except Exception as error:
                 delay = base_delay * (attempt + 1)
                 logger.error(
@@ -534,7 +541,6 @@ class Tapper:
                     f"Sleep <y>{delay}</y> sec | {error}"
                 )
                 await asyncio.sleep(delay)
-
         logger.error(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
         return None
 
@@ -781,16 +787,17 @@ class Tapper:
         headers["User-Agent"] = user_agent
 
         ssl_context = ssl.create_default_context(cafile=certifi.where())
+        #ssl_context = None
 
         connector = ProxyConnector().from_url(url=proxy, rdns=True, ssl=ssl_context) if proxy \
             else aiohttp.TCPConnector(ssl=ssl_context)
 
-        http_client = aiohttp.ClientSession(
-            headers=headers,
-            connector=connector,
-            trust_env=True
-        )
-
+        http_client = CloudflareScraper(headers=headers, connector=connector)
+        #http_client = aiohttp.ClientSession(
+        #    headers=headers,
+        #    connector=connector,
+        #    trust_env=True
+        #)
         return http_client, connector
 
     async def create_session_with_retry(self, user_agent: str, proxy: str | None,
@@ -841,6 +848,7 @@ class Tapper:
                         continue
 
                 http_client.headers["Authorization"] = f"initData {tg_web_data}"
+                self.init_data = f"initData {tg_web_data}"
                 logger.info(f"{self.session_name} | Started login")
                 self.user_info = await self.login(http_client=http_client)
                 logger.success(f"{self.session_name} | Successful login")
@@ -910,7 +918,8 @@ async def run_tapper(tg_client: Client, user_agent: str, start_delay: int, proxy
         tg_client=tg_client,
         first_run=first_run,
         pixel_chain=pixel_chain,
-        memory_cache=memory_cache
+        memory_cache=memory_cache,
+        user_agent=user_agent
     )
 
     try:

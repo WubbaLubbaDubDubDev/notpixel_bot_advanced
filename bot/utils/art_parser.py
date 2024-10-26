@@ -20,7 +20,7 @@ class JSArtParserAsync:
             return None
 
     def find_js_file(self, html_content):
-        pattern = re.compile(r'src=["\'](/assets/index-[A-Za-z0-9]+\.js)["\']')
+        pattern = re.compile(r'src=["\'](/assets/index[-\w.]+\.js)["\']')
         match = pattern.search(html_content)
         if match:
             return match.group(1)

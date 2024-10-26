@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Additional settings
     ENABLE_3X_REWARD: bool = True  # Enable 3x rewards
-    USE_UNPOPULAR_TEMPLATE: bool = True  # Use an unpopular template
+    USE_UNPOPULAR_TEMPLATE: bool = False  # Use an unpopular template
 
 
 settings = Settings()
