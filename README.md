@@ -27,29 +27,31 @@
 | Action randomization 🆕                                                                                                  |     ✅     |
 
 ## Settings  
-| **Parameter**                      | **Description**                                                            |
-|------------------------------------|:---------------------------------------------------------------------------|
-| **API_ID / API_HASH**              | Your API_ID / API_HASH                                                     |
-| **SLEEP_TIME**                     | Sleep time between cycles (default - [426, 4260])                          |
-| **NIGHT_MODE**                     | Enable night mode to avoid actions during specified hours (default - True) |
-| **NIGHT_SLEEP_START_HOURS**        | Night sleep start hours (default - [22, 2])                                |
-| **NIGHT_SLEEP_DURATION**           | Duration of night sleep in hours (default - [4, 8])                        |
-| **START_DELAY**                    | Delay before starting actions (default - [30, 60])                         |
-| **AUTO_TASK** DANGEROUS            | Automatically execute tasks (default - False)                              |
-| **TASKS_TO_DO** AUTOTASK           | List of tasks to perform automatically                                     |
-| **AUTO_DRAW**                      | Enable automatic pixel drawing (default - True)                            |
-| **JOIN_TG_CHANNELS**               | Automatically join Telegram channels (default - True)                      |
-| **CLAIM_REWARD**                   | Automatically claim rewards (default - True)                               |
-| **AUTO_UPGRADE**                   | Automatically upgrade items or settings (default - True)                   |
-| **REF_ID**                         | Referral ID                                                                |
-| **IN_USE_SESSIONS_PATH**           | Path to the file where used sessions are stored                            |
-| **AUTO_BIND_PROXIES_FROM_FILE**    | Automatically bind proxies from file (default - False)                     |
-| **DRAW_IMAGE**                     | Perform image drawing (default - False)                                    |
-| **DRAWING_START_COORDINATES**      | Starting coordinates for drawing (default - [0, 0])                        |
-| **IMAGE_PATH**                     | Path to the image file for drawing (default - "10x10.png")                 |
-| **PALETTE**                        | List of colors used for drawing                                            |
-| **ENABLE_3X_REWARD**               | Enable 3x rewards (default - True)                                         |
-| **USE_UNPOPULAR_TEMPLATE**         | Use an unpopular template for drawing (default - True)                     |
+| **Parameter**                   | **Description**                                                            |
+|---------------------------------|:---------------------------------------------------------------------------|
+| **API_ID / API_HASH**           | Your API_ID / API_HASH                                                     |
+| **SLEEP_TIME**                  | Sleep time between cycles (default - [426, 4260])                          |
+| **NIGHT_MODE**                  | Enable night mode to avoid actions during specified hours (default - True) |
+| **NIGHT_SLEEP_START_HOURS**     | Night sleep start hours (default - [22, 2])                                |
+| **NIGHT_SLEEP_DURATION**        | Duration of night sleep in hours (default - [4, 8])                        |
+| **START_DELAY**                 | Delay before starting actions (default - [30, 60])                         |
+| **AUTO_TASK** DANGEROUS         | Automatically execute tasks (default - False)                              |
+| **TASKS_TO_DO** AUTOTASK        | List of tasks to perform automatically                                     |
+| **AUTO_DRAW**                   | Enable automatic pixel drawing (default - True)                            |
+| **JOIN_TG_CHANNELS**            | Automatically join Telegram channels (default - True)                      |
+| **CLAIM_REWARD**                | Automatically claim rewards (default - True)                               |
+| **AUTO_UPGRADE**                | Automatically upgrade items or settings (default - True)                   |
+| **REF_ID**                      | Referral ID                                                                |
+| **IN_USE_SESSIONS_PATH**        | Path to the file where used sessions are stored                            |
+| **AUTO_BIND_PROXIES_FROM_FILE** | Automatically bind proxies from file (default - False)                     |
+| **DRAW_IMAGE**                  | Perform image drawing (default - False)                                    |
+| **DRAWING_START_COORDINATES**   | Starting coordinates for drawing (default - [0, 0])                        |
+| **IMAGE_PATH**                  | Path to the image file for drawing (default - "10x10.png")                 |
+| **PALETTE**                     | List of colors used for drawing                                            |
+| **ENABLE_3X_REWARD**            | Enable 3x rewards (default - True)                                         |
+| **USE_UNPOPULAR_TEMPLATE**      | Use an unpopular template for drawing (default - True)                     |
+| **USE_SPECIFIED_TEMPLATES**     | Enable using a predefined list of templates for drawing (default - False)  |
+| **SPECIFIED_TEMPLATES_ID_LIST** | List of template IDs to use when **USE_SPECIFIED_TEMPLATES** is enabled    |
 
 
 ## Quick Start 📚

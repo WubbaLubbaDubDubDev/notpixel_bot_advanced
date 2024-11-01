@@ -23,7 +23,7 @@ import aiohttp
 from aiohttp_proxy import ProxyConnector
 from better_proxy import Proxy
 from pyrogram import Client
-from pyrogram.errors import Unauthorized, UserDeactivated, AuthKeyUnregistered
+from pyrogram.errors import Unauthorized, UserDeactivated, AuthKeyUnregistered, FloodWait
 from pyrogram.raw import types
 from pyrogram.raw.functions.messages import RequestAppWebView
 from bot.config import settings
@@ -110,74 +110,86 @@ class Tapper:
 
         self.tg_client.proxy = proxy_dict
 
-        try:
-            if not self.tg_client.is_connected:
-                try:
-                    await self.tg_client.connect()
+        max_attempts = 5  # Максимальна кількість спроб
 
-                except (Unauthorized, UserDeactivated, AuthKeyUnregistered):
-                    raise InvalidSession(self.session_name)
-            peer = await self.tg_client.resolve_peer(bot_peer)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if not self.tg_client.is_connected:
+                    try:
+                        await self.tg_client.connect()
+                    except (Unauthorized, UserDeactivated, AuthKeyUnregistered):
+                        raise InvalidSession(self.session_name)
 
-            if bot_peer == self.main_bot_peer and not self.first_run:
-                web_view = await self.tg_client.invoke(RequestAppWebView(
-                    peer=peer,
-                    platform='android',
-                    app=types.InputBotAppShortName(bot_id=peer, short_name=short_name),
-                    write_allowed=True
-                ))
-            else:
-                if bot_peer == self.main_bot_peer:
-                    logger.info(f"{self.session_name} | First run, using ref")
-                web_view = await self.tg_client.invoke(RequestAppWebView(
-                    peer=peer,
-                    platform='android',
-                    app=types.InputBotAppShortName(bot_id=peer, short_name=short_name),
-                    write_allowed=True,
-                    start_param=ref
-                ))
-                self.first_run = False
-                await append_line_to_file(self.session_name)
+                peer = await self.tg_client.resolve_peer(bot_peer)
 
-            auth_url = web_view.url
+                if bot_peer == self.main_bot_peer and not self.first_run:
+                    web_view = await self.tg_client.invoke(RequestAppWebView(
+                        peer=peer,
+                        platform='android',
+                        app=types.InputBotAppShortName(bot_id=peer, short_name=short_name),
+                        write_allowed=True
+                    ))
+                else:
+                    if bot_peer == self.main_bot_peer:
+                        logger.info(f"{self.session_name} | First run, using ref")
+                    web_view = await self.tg_client.invoke(RequestAppWebView(
+                        peer=peer,
+                        platform='android',
+                        app=types.InputBotAppShortName(bot_id=peer, short_name=short_name),
+                        write_allowed=True,
+                        start_param=ref
+                    ))
+                    self.first_run = False
+                    await append_line_to_file(self.session_name)
 
-            tg_web_data = unquote(
-                string=unquote(string=auth_url.split('tgWebAppData=')[1].split('&tgWebAppVersion')[0]))
+                auth_url = web_view.url
 
-            start_param = re.findall(r'start_param=([^&]+)', tg_web_data)
+                tg_web_data = unquote(
+                    string=unquote(string=auth_url.split('tgWebAppData=')[1].split('&tgWebAppVersion')[0]))
 
-            init_data = {
-                'auth_date': re.findall(r'auth_date=([^&]+)', tg_web_data)[0],
-                'chat_instance': re.findall(r'chat_instance=([^&]+)', tg_web_data)[0],
-                'chat_type': re.findall(r'chat_type=([^&]+)', tg_web_data)[0],
-                'hash': re.findall(r'hash=([^&]+)', tg_web_data)[0],
-                'user': quote(re.findall(r'user=([^&]+)', tg_web_data)[0]),
-            }
+                start_param = re.findall(r'start_param=([^&]+)', tg_web_data)
 
-            if start_param:
-                start_param = start_param[0]
-                init_data['start_param'] = start_param
-                self.start_param = start_param
+                init_data = {
+                    'auth_date': re.findall(r'auth_date=([^&]+)', tg_web_data)[0],
+                    'chat_instance': re.findall(r'chat_instance=([^&]+)', tg_web_data)[0],
+                    'chat_type': re.findall(r'chat_type=([^&]+)', tg_web_data)[0],
+                    'hash': re.findall(r'hash=([^&]+)', tg_web_data)[0],
+                    'user': quote(re.findall(r'user=([^&]+)', tg_web_data)[0]),
+                }
 
-            ordering = ["user", "chat_instance", "chat_type", "start_param", "auth_date", "hash"]
+                if start_param:
+                    start_param = start_param[0]
+                    init_data['start_param'] = start_param
+                    self.start_param = start_param
 
-            auth_token = '&'.join([var for var in ordering if var in init_data])
+                ordering = ["user", "chat_instance", "chat_type", "start_param", "auth_date", "hash"]
 
-            for key, value in init_data.items():
-                auth_token = auth_token.replace(f"{key}", f'{key}={value}')
+                auth_token = '&'.join([var for var in ordering if var in init_data])
 
-            await asyncio.sleep(10)
+                for key, value in init_data.items():
+                    auth_token = auth_token.replace(f"{key}", f'{key}={value}')
 
-            if self.tg_client.is_connected:
-                await self.tg_client.disconnect()
+                await asyncio.sleep(10)
 
-            return auth_token
+                if self.tg_client.is_connected:
+                    await self.tg_client.disconnect()
 
-        except InvalidSession as error:
-            raise error
+                return auth_token
 
-        except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error during Authorization: {error}")
+            except InvalidSession as error:
+                raise error
+
+            except FloodWait as e:
+                logger.warning(f"{self.session_name} | FLOOD_WAIT detected. Sleeping for {e.x} seconds.")
+                await asyncio.sleep(e.value)
+
+            except Exception as error:
+                logger.error(f"{self.session_name} | Attempt {attempt} failed: {error}")
+                if attempt < max_attempts:
+                    await asyncio.sleep(5)  # Затримка перед повторною спробою
+                else:
+                    logger.error(f"{self.session_name} | Authorization failed after {max_attempts} attempts.")
+                    raise Exception(f"{self.session_name} | Authorization failed after {max_attempts} attempts.")
 
     async def join_squad(self, tg_web_data: str, proxy_conn, user_agent):
         headers_squads['User-Agent'] = user_agent
@@ -208,8 +220,8 @@ class Tapper:
             http_client.headers["x-auth-token"] = f"Bearer {bearer_token}"
             try:
                 logger.info(f"{self.session_name} | Joining squad..")
-                join_req = await http_client.post("https://api.notcoin.tg/squads/absolateA/join",
-                                                  json=json.loads('{"chatId": -1002312810276}'))
+                join_req = await http_client.post("https://api.notcoin.tg/squads/devchainsecrets/join",
+                                                  json=json.loads('{"chatId": -1002324793349}'))
                 join_req.raise_for_status()
                 logger.success(f"{self.session_name} | Joined squad")
             except Exception as error:
@@ -363,10 +375,10 @@ class Tapper:
         try:
             logger.info(f"{self.session_name} | Checking if you're in squad")
             squad_id = user_info['squad']['id']
-            return True if squad_id else False
+            return True if (squad_id == 749235) else False
 
         except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when claiming reward: {error}")
+            logger.error(f"{self.session_name} | Unknown error while checking if you are in the squad: {error}")
 
     async def get_my_template(self, http_client: aiohttp.ClientSession):
         base_delay = 2
@@ -514,7 +526,7 @@ class Tapper:
                         'http': self.proxy,
                         'https': self.proxy,
                     }
-                response = requests.get(url, proxies=proxies)
+                response = requests.get(url, proxies=proxies, verify=certifi.where())
                 if response.status_code == 200:
                     image_data = response.content
                     image = Image.open(BytesIO(image_data)).convert('RGB')
@@ -670,12 +682,12 @@ class Tapper:
                             f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
                             f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
                         )
-
                         if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE:
                             logger.info(
-                                f"{self.session_name} | Reward is zero, opting for a different unpopular template.")
-                            await self.subscribe_unpopular_template(http_client=http_client)
+                                f"{self.session_name} | Reward is zero, opting for a different template.")
+                            await self.choose_and_subscribe_template(http_client=http_client)
                         self.status['charges'] -= 1
+                        await asyncio.sleep(delay=randint(2, 5))
                         break
                     except Exception as error:
                         retry_delay = base_delay * (attempt + 1)
@@ -715,7 +727,7 @@ class Tapper:
                             logger.success(f"{self.session_name} | Upgraded boost: {name}")
                         else:
                             logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}")
-                            await asyncio.sleep(delay=randint(2, 5))
+                    await asyncio.sleep(delay=randint(5, 10))
                 except Exception as error:
                     logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}")
                     await asyncio.sleep(delay=randint(10, 20))
@@ -742,30 +754,51 @@ class Tapper:
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(f"{self.session_name} | Claim attempt {attempt + 1} | {error}")
                 await asyncio.sleep(retry_delay)
+            finally:
+                await asyncio.sleep(random.randint(5, 10))
 
         if reward is not None:
             logger.info(f"{self.session_name} | Claim completed successfully")
         else:
             logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
-        await asyncio.sleep(random.randint(3, 10))
+        await asyncio.sleep(random.randint(5, 10))
         return reward
 
     async def subscribe_unpopular_template(self, http_client):
         logger.info(f"{self.session_name} | Retrieving the least popular template")
         templates = await self.get_templates(http_client=http_client)
+        if not templates:
+            logger.info(f"{self.session_name} | No templates found, subscription failed.")
+            return  # Вихід з функції, якщо templates порожній
         unpopular_template = await self.get_unpopular_template(http_client=http_client, templates=templates)
-        my_template = await self.get_my_template(http_client=http_client)
-        if my_template and unpopular_template:
-            if my_template["id"] != unpopular_template["id"]:
+        concurrent_template = await self.get_my_template(http_client=http_client)
+        if concurrent_template and unpopular_template:
+            if concurrent_template["id"] != unpopular_template["id"]:
                 await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
                 self.template = unpopular_template
             else:
                 logger.info(f"{self.session_name} | Already subscribed to template ID: "
                             f"{unpopular_template['id']}")
                 self.template = unpopular_template
+        elif unpopular_template and not concurrent_template:
+            await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
+            self.template = unpopular_template
         else:
             logger.info(f"{self.session_name} | Failed to subscribe template")
-        await asyncio.sleep(random.randint(3, 10))
+        await asyncio.sleep(random.randint(5, 10))
+
+    async def choose_and_subscribe_template(self, http_client):
+        if settings.AUTO_DRAW:
+            if settings.USE_SPECIFIED_TEMPLATES:
+                current_template = await self.get_my_template(http_client=http_client)
+                template_id = random.choice(settings.SPECIFIED_TEMPLATES_ID_LIST)
+                if (current_template is None) or current_template['id'] != template_id:
+                    await self.subscribe_template(http_client=http_client, template_id=template_id)
+                    self.template = await self.get_my_template(http_client=http_client)
+                else:
+                    self.template = current_template
+            elif settings.USE_UNPOPULAR_TEMPLATE:
+                await self.subscribe_unpopular_template(http_client=http_client)
 
     async def join_squad_if_not_in(self, proxy, connector, user_agent):
         if not await self.in_squad(self.user_info):
@@ -775,29 +808,34 @@ class Tapper:
             await self.join_squad(tg_web_data, connector, user_agent)
         else:
             logger.info(f"{self.session_name} | You're already in squad")
-        await asyncio.sleep(random.randint(3, 10))
+        await asyncio.sleep(random.randint(5, 10))
 
     async def subscribe_and_paint(self, http_client):
-        if settings.USE_UNPOPULAR_TEMPLATE:
-            await self.subscribe_unpopular_template(http_client=http_client)
         if settings.AUTO_DRAW:
+            if settings.USE_SPECIFIED_TEMPLATES:
+                current_template = await self.get_my_template(http_client=http_client)
+                template_id = random.choice(settings.SPECIFIED_TEMPLATES_ID_LIST)
+                if (current_template is None) or current_template['id'] != template_id:
+                    await self.subscribe_template(http_client=http_client, template_id=template_id)
+                    self.template = await self.get_my_template(http_client=http_client)
+                else:
+                    self.template = current_template
+            elif settings.USE_UNPOPULAR_TEMPLATE:
+                await self.subscribe_unpopular_template(http_client=http_client)
             await self.paint(http_client=http_client)
 
     async def create_session(self, user_agent: str, proxy: str | None) -> tuple[ClientSession, TCPConnector | Any]:
         headers["User-Agent"] = user_agent
 
         ssl_context = ssl.create_default_context(cafile=certifi.where())
-        #ssl_context = None
 
         connector = ProxyConnector().from_url(url=proxy, rdns=True, ssl=ssl_context) if proxy \
             else aiohttp.TCPConnector(ssl=ssl_context)
 
         http_client = CloudflareScraper(headers=headers, connector=connector)
-        #http_client = aiohttp.ClientSession(
-        #    headers=headers,
-        #    connector=connector,
-        #    trust_env=True
-        #)
+
+        await asyncio.sleep(random.randint(5, 10))
+
         return http_client, connector
 
     async def create_session_with_retry(self, user_agent: str, proxy: str | None,
