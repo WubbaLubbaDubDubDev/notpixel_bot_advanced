@@ -802,6 +802,8 @@ class Tapper:
                     await self.subscribe_template(http_client=http_client, template_id=template_id)
                     self.template = await self.get_my_template(http_client=http_client)
                 else:
+                    logger.info(f"{self.session_name} | Already subscribed to template ID: "
+                                f"{current_template['id']}")
                     self.template = current_template
             elif settings.USE_UNPOPULAR_TEMPLATE:
                 await self.subscribe_unpopular_template(http_client=http_client)
