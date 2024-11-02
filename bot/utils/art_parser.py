@@ -5,15 +5,16 @@ from urllib.parse import urljoin
 
 
 class JSArtParserAsync:
-    def __init__(self, http_client):
+    def __init__(self, http_client, proxy=None):
         self.url = "https://app.notpx.app/"
         self.js_filename = 'index-DXJ5cfMN.js'
         self.session = http_client
+        self.proxy = proxy
         self.js_content = None
 
     async def download_html(self):
         try:
-            async with self.session.get(self.url) as response:
+            async with self.session.get(self.url, proxy=self.proxy) as response:
                 response.raise_for_status()
                 return await response.text()
         except aiohttp.ClientError as e:
@@ -28,7 +29,7 @@ class JSArtParserAsync:
 
     async def download_js(self, js_url):
         try:
-            async with self.session.get(js_url) as response:
+            async with self.session.get(js_url, proxy=self.proxy) as response:
                 response.raise_for_status()
                 self.js_content = await response.text()
         except aiohttp.ClientError as e:

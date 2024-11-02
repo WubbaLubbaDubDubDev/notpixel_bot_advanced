@@ -195,7 +195,7 @@ class Tapper:
         headers_squads['User-Agent'] = user_agent
         async with aiohttp.ClientSession(headers=headers_squads, connector=proxy_conn, trust_env=True) as http_client:
             try:
-                response = await http_client.get(url='https://ipinfo.io/ip', timeout=aiohttp.ClientTimeout(20))
+                response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy, timeout=aiohttp.ClientTimeout(20))
                 ip = (await response.text())
                 logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
                 http_client.headers["Host"] = "api.notcoin.tg"
@@ -207,7 +207,7 @@ class Tapper:
                 http_client.headers['x-auth-token'] = "Bearer null"
                 qwe = f'{{"webAppData": "{tg_web_data}"}}'
                 r = json.loads(qwe)
-                login_req = await http_client.post("https://api.notcoin.tg/auth/login", json=r)
+                login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy,  json=r)
                 login_req.raise_for_status()
                 login_data = await login_req.json()
                 bearer_token = login_data.get("data", {}).get("accessToken", None)
@@ -221,7 +221,7 @@ class Tapper:
             try:
                 logger.info(f"{self.session_name} | Joining squad..")
                 join_req = await http_client.post("https://api.notcoin.tg/squads/devchainsecrets/join",
-                                                  json=json.loads('{"chatId": -1002324793349}'))
+                                                  json=json.loads('{"chatId": -1002324793349}'), proxy=self.proxy)
                 join_req.raise_for_status()
                 logger.success(f"{self.session_name} | Joined squad")
             except Exception as error:
@@ -229,7 +229,7 @@ class Tapper:
 
     async def login(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get("https://notpx.app/api/v1/users/me")
+            response = await http_client.get("https://notpx.app/api/v1/users/me", proxy=self.proxy)
             response.raise_for_status()
             response_json = await response.json()
             return response_json
@@ -238,10 +238,10 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error when logging: {error}")
             await self.login(http_client)
 
-    async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
+    async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: str) -> None:
         try:
             timeout = aiohttp.ClientTimeout(total=5)
-            response = await http_client.get(url='https://api.ipify.org?format=json', timeout=timeout)
+            response = await http_client.get(url='https://api.ipify.org?format=json', proxy=proxy, timeout=timeout)
             response.raise_for_status()
             ip = (await response.json()).get('ip')
             logger.info(f"{self.session_name} | Proxy IP: {ip}")
@@ -271,7 +271,7 @@ class Tapper:
         for attempt in range(max_retries):
             # Main loop for updating status
             try:
-                status_req = await http_client.get('https://notpx.app/api/v1/mining/status')
+                status_req = await http_client.get('https://notpx.app/api/v1/mining/status', proxy=self.proxy)
                 status_req.raise_for_status()
                 status_json = await status_req.json()
                 self.status = status_json
@@ -319,7 +319,7 @@ class Tapper:
                     for new_league in possible_upgrades:
                         if new_league not in done_task_list:
                             tasks_status = await http_client.get(
-                                f'https://notpx.app/api/v1/mining/task/check/{new_league}')
+                                f'https://notpx.app/api/v1/mining/task/check/{new_league}', proxy=self.proxy)
                             tasks_status.raise_for_status()
                             tasks_status_json = await tasks_status.json()
                             status = tasks_status_json[new_league]
@@ -351,7 +351,8 @@ class Tapper:
                                 continue
                             await self.join_tg_channel(task_name)
                             await asyncio.sleep(delay=3)
-                    tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}')
+                    tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}',
+                                                         proxy=self.proxy)
                     tasks_status.raise_for_status()
                     tasks_status_json = await tasks_status.json()
                     status = (lambda r: all(r.values()))(tasks_status_json)
@@ -390,7 +391,7 @@ class Tapper:
 
             try:
                 url = 'https://notpx.app/api/v1/image/template/my'
-                my_template_req = await http_client.get(url=url)
+                my_template_req = await http_client.get(url=url, proxy=self.proxy)
                 my_template_req.raise_for_status()
                 my_template = await my_template_req.json()
                 return my_template
@@ -412,7 +413,7 @@ class Tapper:
         for attempt in range(max_retries):
             try:
                 url = f"https://notpx.app/api/v1/image/template/list?limit=12&offset={offset}"
-                templates_req = await http_client.get(url=url)
+                templates_req = await http_client.get(url=url, proxy=self.proxy)
                 templates_req.raise_for_status()
                 templates = await templates_req.json()
                 return templates
@@ -451,7 +452,7 @@ class Tapper:
 
         for attempt in range(max_retries):
             try:
-                template_req = await http_client.get(url=url)
+                template_req = await http_client.get(url=url, proxy=self.proxy)
                 template_req.raise_for_status()
                 template_data = await template_req.json()
                 break
@@ -504,15 +505,16 @@ class Tapper:
     async def download_image(self, url: str, http_client: aiohttp.ClientSession, cache: bool = False):
         download_folder = "app_data/images/"
         file_name = os.path.basename(url)
+
         file_path = os.path.join(download_folder, file_name)
         headers_image['User-Agent'] = self.user_agent
 
         if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
-            logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
+            #logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
             return cached_image
 
         if cache and os.path.exists(file_path):
-            logger.info(f"{self.session_name} | Cached image retrieved from disk: {file_path}")
+            #logger.info(f"{self.session_name} | Cached image retrieved from disk: {file_path}")
             image = Image.open(file_path).convert('RGB')
             if self.memory_cache:
                 self.memory_cache.set(url, image)
@@ -619,7 +621,7 @@ class Tapper:
             x, y, color = diffs
             pixel_id = get_pixel_id(x, y)
         elif settings.ENABLE_3X_REWARD:
-            image_parser = JSArtParserAsync(http_client)
+            image_parser = JSArtParserAsync(http_client, proxy=self.proxy)
             arts = await image_parser.get_all_arts_data()
             canvas_url = r'https://image.notpx.app/api/v2/image'
             canvas_image = await self.download_image(canvas_url, http_client, cache=False)
@@ -658,7 +660,7 @@ class Tapper:
                     try:
                         paint_request = await http_client.post(
                             'https://notpx.app/api/v1/repaint/start',
-                            json={"pixelId": pixel_id, "newColor": color}
+                            json={"pixelId": pixel_id, "newColor": color}, proxy=self.proxy
                         )
                         paint_request.raise_for_status()
 
@@ -709,7 +711,9 @@ class Tapper:
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when painting: {error}")
         finally:
-            logger.info(f"{self.session_name} | Painting completed")
+            await self.update_status(http_client)
+            status = self.status
+            logger.info(f"{self.session_name} | Painting completed | Total repaints: <y>{status['repaintsTotal']}</y>")
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
         logger.info(f"{self.session_name} | Upgrading started")
@@ -724,7 +728,7 @@ class Tapper:
                         price_level = upgrades[name]["levels"][level + 1]["Price"]
                         if user_balance >= price_level:
                             upgrade_req = await http_client.get(
-                                f'https://notpx.app/api/v1/mining/boost/check/{name}')
+                                f'https://notpx.app/api/v1/mining/boost/check/{name}', proxy=self.proxy)
                             upgrade_req.raise_for_status()
                             logger.success(f"{self.session_name} | Upgraded boost: {name}")
                         else:
@@ -746,7 +750,7 @@ class Tapper:
 
         for attempt in range(max_retries):
             try:
-                response = await http_client.get('https://notpx.app/api/v1/mining/claim')
+                response = await http_client.get('https://notpx.app/api/v1/mining/claim', proxy=self.proxy)
                 response.raise_for_status()
                 response_json = await response.json()
                 reward = response_json.get('claimed')
@@ -826,23 +830,22 @@ class Tapper:
                 await self.subscribe_unpopular_template(http_client=http_client)
             await self.paint(http_client=http_client)
 
-    async def create_session(self, user_agent: str, proxy: str | None) -> tuple[ClientSession, TCPConnector]:
+    async def create_session(self, user_agent: str) -> tuple[ClientSession, TCPConnector]:
         headers = {"User-Agent": user_agent}
 
         ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-        connector = ProxyConnector().from_url(url=proxy, ssl=ssl_context) if proxy \
-            else aiohttp.TCPConnector(ssl=ssl_context)
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
 
         http_client = CloudflareScraper(headers=headers, connector=connector)
 
         return http_client, connector
 
-    async def create_session_with_retry(self, user_agent: str, proxy: str | None,
+    async def create_session_with_retry(self, user_agent: str,
                                         max_retries: int = 3) -> tuple[ClientSession, TCPConnector | Any]:
         for attempt in range(max_retries):
             try:
-                session, connector = await self.create_session(user_agent, proxy)
+                session, connector = await self.create_session(user_agent)
                 return session, connector
             except ClientError as e:
                 if attempt == max_retries - 1:
@@ -875,10 +878,10 @@ class Tapper:
 
         while True:
             try:
-                http_client, connector = await self.create_session_with_retry(user_agent, proxy)
+                http_client, connector = await self.create_session_with_retry(user_agent)
 
                 if proxy:
-                    await self.check_proxy(http_client=http_client, proxy=connector)
+                    await self.check_proxy(http_client=http_client, proxy=proxy)
                 if time() - access_token_created_time >= token_live_time:
                     tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.main_bot_peer, ref=link,
                                                              short_name="app")
