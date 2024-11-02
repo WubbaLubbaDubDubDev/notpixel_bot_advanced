@@ -75,7 +75,7 @@ async def get_tg_client(session_name: str,
         "api_id": settings.API_ID,
         "api_hash": settings.API_HASH,
         "workdir": "sessions/",
-        "sleep_threshold": 30
+        "sleep_threshold": 123
     }
 
     # Додаємо опціональні параметри, якщо вони задані

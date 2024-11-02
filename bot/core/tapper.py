@@ -240,7 +240,9 @@ class Tapper:
 
     async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
         try:
-            response = await http_client.get(url='https://api.ipify.org?format=json', timeout=aiohttp.ClientTimeout(5))
+            timeout = aiohttp.ClientTimeout(total=5)
+            response = await http_client.get(url='https://api.ipify.org?format=json', timeout=timeout)
+            response.raise_for_status()
             ip = (await response.json()).get('ip')
             logger.info(f"{self.session_name} | Proxy IP: {ip}")
         except Exception as error:
@@ -824,17 +826,15 @@ class Tapper:
                 await self.subscribe_unpopular_template(http_client=http_client)
             await self.paint(http_client=http_client)
 
-    async def create_session(self, user_agent: str, proxy: str | None) -> tuple[ClientSession, TCPConnector | Any]:
-        headers["User-Agent"] = user_agent
+    async def create_session(self, user_agent: str, proxy: str | None) -> tuple[ClientSession, TCPConnector]:
+        headers = {"User-Agent": user_agent}
 
         ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-        connector = ProxyConnector().from_url(url=proxy, rdns=True, ssl=ssl_context) if proxy \
+        connector = ProxyConnector().from_url(url=proxy, ssl=ssl_context) if proxy \
             else aiohttp.TCPConnector(ssl=ssl_context)
 
         http_client = CloudflareScraper(headers=headers, connector=connector)
-
-        await asyncio.sleep(random.randint(5, 10))
 
         return http_client, connector
 
