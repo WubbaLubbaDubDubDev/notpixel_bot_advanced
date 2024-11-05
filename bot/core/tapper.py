@@ -7,20 +7,18 @@ import base64
 import ssl
 from datetime import datetime, timedelta
 from io import BytesIO
-from time import time
-from typing import Tuple, Any
+from typing import Any
 import requests
 
 from aiocfscrape import CloudflareScraper
 from aiohttp import ClientError, ClientSession, TCPConnector
-from colorama import Fore, Style, init
+from colorama import Style, init
 from urllib.parse import unquote, quote
 from PIL import Image
 
 from bot.config.upgrades import upgrades
 
 import aiohttp
-from aiohttp_proxy import ProxyConnector
 from better_proxy import Proxy
 from pyrogram import Client
 from pyrogram.errors import Unauthorized, UserDeactivated, AuthKeyUnregistered, FloodWait
@@ -32,7 +30,7 @@ from bot.utils import logger
 from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions import InvalidSession
-from .headers import headers, headers_squads, headers_image
+from .headers import headers_squads, headers_image
 from random import randint, choices
 import certifi
 
@@ -194,35 +192,66 @@ class Tapper:
     async def join_squad(self, tg_web_data: str, proxy_conn, user_agent):
         headers_squads['User-Agent'] = user_agent
         async with aiohttp.ClientSession(headers=headers_squads, connector=proxy_conn, trust_env=True) as http_client:
-            try:
-                response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy,
-                                                 timeout=aiohttp.ClientTimeout(20))
-                ip = (await response.text())
-                logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
-                http_client.headers["Host"] = "api.notcoin.tg"
-                http_client.headers["bypass-tunnel-reminder"] = "x"
-                http_client.headers["TE"] = "trailers"
-                if tg_web_data is None:
-                    logger.error(f"{self.session_name} | Invalid web_data, cannot join squad")
-                http_client.headers['Content-Length'] = str(len(tg_web_data) + 18)
-                http_client.headers['x-auth-token'] = "Bearer null"
-                qwe = f'{{"webAppData": "{tg_web_data}"}}'
-                r = json.loads(qwe)
-                login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy, json=r)
-                login_req.raise_for_status()
-                login_data = await login_req.json()
-                bearer_token = login_data.get("data", {}).get("accessToken", None)
-                if not bearer_token:
-                    raise Exception
-                logger.success(f"{self.session_name} | Logged in to NotGames")
-            except Exception as error:
-                logger.error(f"{self.session_name} | Unknown error when logging in to NotGames: {error}")
+            bearer_token = None
+            base_delay = 2
+            max_retries = 5
+
+            for attempt in range(max_retries):
+                try:
+                    if self.proxy:
+                        response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy,
+                                                         timeout=aiohttp.ClientTimeout(20))
+                        ip = await response.text()
+                        logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
+
+                    http_client.headers["Host"] = "api.notcoin.tg"
+                    http_client.headers["bypass-tunnel-reminder"] = "x"
+                    http_client.headers["TE"] = "trailers"
+
+                    if tg_web_data is None:
+                        logger.error(f"{self.session_name} | Invalid web_data, cannot join squad")
+                        return
+
+                    http_client.headers['Content-Length'] = str(len(tg_web_data) + 18)
+                    http_client.headers['x-auth-token'] = "Bearer null"
+
+                    qwe = json.dumps({"webAppData": tg_web_data})
+                    login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy,
+                                                       json=json.loads(qwe))
+                    login_req.raise_for_status()
+
+                    login_data = await login_req.json()
+                    bearer_token = login_data.get("data", {}).get("accessToken", None)
+
+                    if bearer_token:
+                        logger.success(f"{self.session_name} | Logged in to NotGames")
+                        break
+                    else:
+                        raise aiohttp.ClientResponseError(status=401, message="Invalid or missing token")
+
+                except aiohttp.ClientResponseError as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Login attempt {attempt + 1} failed, retrying in {retry_delay} seconds"
+                        f" | {error.status}, {error.message}")
+                    await asyncio.sleep(retry_delay)
+
+                except Exception as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.error(
+                        f"{self.session_name} | Unexpected error when logging in| Sleep {retry_delay} sec | {error}")
+                    await asyncio.sleep(retry_delay)
+
+            if not bearer_token:
+                raise RuntimeError(f"{self.session_name} | Failed to obtain bearer token after {max_retries} attempts")
+
             http_client.headers["Content-Length"] = "26"
             http_client.headers["x-auth-token"] = f"Bearer {bearer_token}"
+
             try:
-                logger.info(f"{self.session_name} | Joining squad..")
+                logger.info(f"{self.session_name} | Joining squad...")
                 join_req = await http_client.post("https://api.notcoin.tg/squads/devchainsecrets/join",
-                                                  json=json.loads('{"chatId": -1002324793349}'), proxy=self.proxy)
+                                                  json={"chatId": -1002324793349}, proxy=self.proxy)
                 join_req.raise_for_status()
                 logger.success(f"{self.session_name} | Joined squad")
             except Exception as error:
@@ -378,9 +407,12 @@ class Tapper:
     async def in_squad(self, user_info):
         try:
             logger.info(f"{self.session_name} | Checking if you're in squad")
-            squad_id = user_info['squad']['id']
+            squad = user_info['squad']
+            if squad:
+                squad_id = squad['id']
+            else:
+                return False
             return True if (squad_id == 749235) else False
-
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while checking if you are in the squad: {error}")
 
@@ -716,6 +748,59 @@ class Tapper:
             status = self.status
             logger.info(f"{self.session_name} | Painting completed | Total repaints: <y>{status['repaintsTotal']}</y>")
 
+# Planning to draw each pixel in separate coroutines to interleave drawing with other actions,
+# rather than drawing each pixel sequentially.
+    async def paint_pixel(self, http_client: aiohttp.ClientSession, previous_balance):
+        max_retries = 5
+        base_delay = 2
+        for attempt in range(max_retries):
+            new_pixel_info = await self.prepare_pixel_info(http_client=http_client)
+            if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE:
+                logger.info(f"{self.session_name} | Choosing a different template as the current one failed to load.")
+                await self.subscribe_unpopular_template(http_client=http_client)
+                continue
+
+            x, y, color, pixel_id = new_pixel_info
+            try:
+                paint_request = await http_client.post(
+                    'https://notpx.app/api/v1/repaint/start',
+                    json={"pixelId": pixel_id, "newColor": color}, proxy=self.proxy
+                )
+                paint_request.raise_for_status()
+
+                # Update balance and calculate reward
+                current_balance = (await paint_request.json())["balance"]
+                if current_balance:
+                    self.status['userBalance'] = current_balance
+
+                delta = None
+                if current_balance and previous_balance:
+                    delta = round(current_balance - previous_balance, 1)
+                else:
+                    logger.warning(f"{self.session_name} | Failed to retrieve reward data.")
+
+                # Logging the painting result
+                r, g, b = hex_to_rgb(color)
+                ansi_color = f'\033[48;2;{r};{g};{b}m'
+                opposite_r, opposite_g, opposite_b = get_opposite_color(r, g, b)
+                opposite_color = f"\033[38;2;{opposite_r};{opposite_g};{opposite_b}m"
+                logger.success(
+                    f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
+                    f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
+                )
+                return
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Paint attempt {attempt + 1} failed. Retrying in <y>{retry_delay}</y> sec | {error}"
+                )
+                await self.update_status(http_client)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"{self.session_name} | Maximum retry attempts reached. Ending paint_pixel process.")
+                    return
+
     async def upgrade(self, http_client: aiohttp.ClientSession):
         logger.info(f"{self.session_name} | Upgrading started")
         try:
@@ -809,8 +894,9 @@ class Tapper:
             elif settings.USE_UNPOPULAR_TEMPLATE:
                 await self.subscribe_unpopular_template(http_client=http_client)
 
-    async def join_squad_if_not_in(self, proxy, connector, user_agent):
+    async def join_squad_if_not_in(self, proxy, user_agent):
         if not await self.in_squad(self.user_info):
+            http_client, connector = await self.create_session_with_retry(user_agent)
             tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
                                                      ref="cmVmPTQ2NDg2OTI0Ng==",
                                                      short_name="squads")
@@ -914,7 +1000,7 @@ class Tapper:
                 if settings.AUTO_UPGRADE:
                     tasks.append(self.upgrade(http_client=http_client))
 
-                tasks.append(self.join_squad_if_not_in(proxy=proxy, connector=connector, user_agent=user_agent))
+                tasks.append(self.join_squad_if_not_in(proxy=proxy, user_agent=user_agent))
 
                 if settings.CLAIM_REWARD:
                     tasks.append(self.claim(http_client=http_client))
