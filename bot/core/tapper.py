@@ -5,7 +5,7 @@ import os
 import random
 import base64
 import ssl
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from time import time
 from typing import Tuple, Any
@@ -195,7 +195,8 @@ class Tapper:
         headers_squads['User-Agent'] = user_agent
         async with aiohttp.ClientSession(headers=headers_squads, connector=proxy_conn, trust_env=True) as http_client:
             try:
-                response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy, timeout=aiohttp.ClientTimeout(20))
+                response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy,
+                                                 timeout=aiohttp.ClientTimeout(20))
                 ip = (await response.text())
                 logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
                 http_client.headers["Host"] = "api.notcoin.tg"
@@ -207,7 +208,7 @@ class Tapper:
                 http_client.headers['x-auth-token'] = "Bearer null"
                 qwe = f'{{"webAppData": "{tg_web_data}"}}'
                 r = json.loads(qwe)
-                login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy,  json=r)
+                login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy, json=r)
                 login_req.raise_for_status()
                 login_data = await login_req.json()
                 bearer_token = login_data.get("data", {}).get("accessToken", None)
@@ -446,8 +447,8 @@ class Tapper:
         template_data = None
 
         template_id = template['templateId']
-        #current_time = int(time() * 1000)
-        #url = f"https://notpx.app/api/v1/image/template/{template_id}?time=${current_time}"
+        # current_time = int(time() * 1000)
+        # url = f"https://notpx.app/api/v1/image/template/{template_id}?time=${current_time}"
         url = f"https://notpx.app/api/v1/image/template/{template_id}"
 
         for attempt in range(max_retries):
@@ -510,11 +511,11 @@ class Tapper:
         headers_image['User-Agent'] = self.user_agent
 
         if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
-            #logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
+            # logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
             return cached_image
 
         if cache and os.path.exists(file_path):
-            #logger.info(f"{self.session_name} | Cached image retrieved from disk: {file_path}")
+            # logger.info(f"{self.session_name} | Cached image retrieved from disk: {file_path}")
             image = Image.open(file_path).convert('RGB')
             if self.memory_cache:
                 self.memory_cache.set(url, image)
@@ -863,15 +864,15 @@ class Tapper:
 
     async def run(self, user_agent: str, start_delay: int, proxy: str | None) -> None:
         self.proxy = proxy
-        access_token_created_time = 0
+        access_token_created_time = datetime.now()
 
         ref = settings.REF_ID
         link = get_link(ref)
 
         logger.info(f"{self.session_name} | Start delay {start_delay} seconds")
-        await asyncio.sleep(delay=start_delay)
+        await asyncio.sleep(start_delay)
 
-        token_live_time = randint(600, 800)
+        token_live_time = timedelta(seconds=randint(600, 800))
         http_client = None
         connector = None
         tg_web_data = None
@@ -884,19 +885,22 @@ class Tapper:
 
                 if proxy:
                     await self.check_proxy(http_client=http_client, proxy=proxy)
-                if time() - access_token_created_time >= token_live_time:
+
+                if (datetime.now() - access_token_created_time >= token_live_time) or tg_web_data is None:
                     tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.main_bot_peer, ref=link,
                                                              short_name="app")
                     if tg_web_data is None:
                         continue
 
-                http_client.headers["Authorization"] = f"initData {tg_web_data}"
-                self.init_data = f"initData {tg_web_data}"
-                logger.info(f"{self.session_name} | Started login")
-                self.user_info = await self.login(http_client=http_client)
-                logger.success(f"{self.session_name} | Successful login")
-                access_token_created_time = time()
-                token_live_time = randint(600, 800)
+                    http_client.headers["Authorization"] = f"initData {tg_web_data}"
+                    self.init_data = f"initData {tg_web_data}"
+                    logger.info(f"{self.session_name} | Started login")
+                    self.user_info = await self.login(http_client=http_client)
+                    logger.success(f"{self.session_name} | Successful login")
+
+                    # Update access token creation time and token live time
+                    access_token_created_time = datetime.now()
+                    token_live_time = timedelta(seconds=randint(600, 800))
 
                 await self.update_status(http_client=http_client)
                 balance = await self.get_balance(http_client)
