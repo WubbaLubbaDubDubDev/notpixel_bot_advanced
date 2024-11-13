@@ -8,6 +8,7 @@ import ssl
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
+
 import requests
 
 from aiocfscrape import CloudflareScraper
@@ -78,6 +79,7 @@ def get_link(code):
 
 class Tapper:
     def __init__(self, tg_client: Client, first_run: bool, pixel_chain=None, memory_cache=None, user_agent=None):
+        self.auth_token = None
         self.init_data = None
         self.user_info = None
         self.tg_client = tg_client
@@ -166,6 +168,7 @@ class Tapper:
 
                 for key, value in init_data.items():
                     auth_token = auth_token.replace(f"{key}", f'{key}={value}')
+                self.auth_token = auth_token
 
                 await asyncio.sleep(10)
 
@@ -189,73 +192,72 @@ class Tapper:
                     logger.error(f"{self.session_name} | Authorization failed after {max_attempts} attempts.")
                     raise Exception(f"{self.session_name} | Authorization failed after {max_attempts} attempts.")
 
-    async def join_squad(self, tg_web_data: str, proxy_conn, user_agent):
+    async def join_squad(self, tg_web_data: str, user_agent, http_client):
         headers_squads['User-Agent'] = user_agent
-        async with aiohttp.ClientSession(headers=headers_squads, connector=proxy_conn, trust_env=True) as http_client:
-            bearer_token = None
-            base_delay = 2
-            max_retries = 5
+        bearer_token = None
+        base_delay = 2
+        max_retries = 5
 
-            for attempt in range(max_retries):
-                try:
-                    if self.proxy:
-                        response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy,
-                                                         timeout=aiohttp.ClientTimeout(20))
-                        ip = await response.text()
-                        logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
-
-                    http_client.headers["Host"] = "api.notcoin.tg"
-                    http_client.headers["bypass-tunnel-reminder"] = "x"
-                    http_client.headers["TE"] = "trailers"
-
-                    if tg_web_data is None:
-                        logger.error(f"{self.session_name} | Invalid web_data, cannot join squad")
-                        return
-
-                    http_client.headers['Content-Length'] = str(len(tg_web_data) + 18)
-                    http_client.headers['x-auth-token'] = "Bearer null"
-
-                    qwe = json.dumps({"webAppData": tg_web_data})
-                    login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy,
-                                                       json=json.loads(qwe))
-                    login_req.raise_for_status()
-
-                    login_data = await login_req.json()
-                    bearer_token = login_data.get("data", {}).get("accessToken", None)
-
-                    if bearer_token:
-                        logger.success(f"{self.session_name} | Logged in to NotGames")
-                        break
-                    else:
-                        raise aiohttp.ClientResponseError(status=401, message="Invalid or missing token")
-
-                except aiohttp.ClientResponseError as error:
-                    retry_delay = base_delay * (attempt + 1)
-                    logger.warning(
-                        f"{self.session_name} | Login attempt {attempt + 1} failed, retrying in {retry_delay} seconds"
-                        f" | {error.status}, {error.message}")
-                    await asyncio.sleep(retry_delay)
-
-                except Exception as error:
-                    retry_delay = base_delay * (attempt + 1)
-                    logger.error(
-                        f"{self.session_name} | Unexpected error when logging in| Sleep {retry_delay} sec | {error}")
-                    await asyncio.sleep(retry_delay)
-
-            if not bearer_token:
-                raise RuntimeError(f"{self.session_name} | Failed to obtain bearer token after {max_retries} attempts")
-
-            http_client.headers["Content-Length"] = "26"
-            http_client.headers["x-auth-token"] = f"Bearer {bearer_token}"
-
+        for attempt in range(max_retries):
             try:
-                logger.info(f"{self.session_name} | Joining squad...")
-                join_req = await http_client.post("https://api.notcoin.tg/squads/devchainsecrets/join",
-                                                  json={"chatId": -1002324793349}, proxy=self.proxy)
-                join_req.raise_for_status()
-                logger.success(f"{self.session_name} | Joined squad")
+                if self.proxy:
+                    response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy,
+                                                     timeout=aiohttp.ClientTimeout(20))
+                    ip = await response.text()
+                    logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
+
+                http_client.headers["Host"] = "api.notcoin.tg"
+                http_client.headers["bypass-tunnel-reminder"] = "x"
+                http_client.headers["TE"] = "trailers"
+
+                if tg_web_data is None:
+                    logger.error(f"{self.session_name} | Invalid web_data, cannot join squad")
+                    return
+
+                http_client.headers['Content-Length'] = str(len(tg_web_data) + 18)
+                http_client.headers['x-auth-token'] = "Bearer null"
+
+                qwe = json.dumps({"webAppData": tg_web_data})
+                login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy,
+                                                   json=json.loads(qwe))
+                login_req.raise_for_status()
+
+                login_data = await login_req.json()
+                bearer_token = login_data.get("data", {}).get("accessToken", None)
+
+                if bearer_token:
+                    logger.success(f"{self.session_name} | Logged in to NotGames")
+                    break
+                else:
+                    raise aiohttp.ClientResponseError(status=401, message="Invalid or missing token")
+
+            except aiohttp.ClientResponseError as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Login attempt {attempt + 1} failed, retrying in {retry_delay} seconds"
+                    f" | {error.status}, {error.message}")
+                await asyncio.sleep(retry_delay)
+
             except Exception as error:
-                logger.error(f"{self.session_name} | Unknown error when joining squad: {error}")
+                retry_delay = base_delay * (attempt + 1)
+                logger.error(
+                    f"{self.session_name} | Unexpected error when logging in| Sleep {retry_delay} sec | {error}")
+                await asyncio.sleep(retry_delay)
+
+        if not bearer_token:
+            raise RuntimeError(f"{self.session_name} | Failed to obtain bearer token after {max_retries} attempts")
+
+        http_client.headers["Content-Length"] = "26"
+        http_client.headers["x-auth-token"] = f"Bearer {bearer_token}"
+
+        try:
+            logger.info(f"{self.session_name} | Joining squad...")
+            join_req = await http_client.post("https://api.notcoin.tg/squads/devchainsecrets/join",
+                                              json={"chatId": -1002324793349}, proxy=self.proxy)
+            join_req.raise_for_status()
+            logger.success(f"{self.session_name} | Joined squad")
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when joining squad: {error}")
 
     async def login(self, http_client: aiohttp.ClientSession):
         try:
@@ -439,7 +441,7 @@ class Tapper:
         logger.error(f"{self.session_name} | Failed to get template after {max_retries} attempts")
         return None
 
-    async def get_templates(self, http_client: aiohttp.ClientSession, offset=48):
+    async def get_templates(self, http_client: aiohttp.ClientSession, offset=128):
         base_delay = 2
         max_retries = 5
 
@@ -563,7 +565,8 @@ class Tapper:
                         'http': self.proxy,
                         'https': self.proxy,
                     }
-                response = requests.get(url, proxies=proxies, verify=certifi.where())
+
+                response = requests.get(url, proxies=proxies, verify=certifi.where(), headers=headers_image)
                 if response.status_code == 200:
                     image_data = response.content
                     image = Image.open(BytesIO(image_data)).convert('RGB')
@@ -626,10 +629,24 @@ class Tapper:
                     canvas_pixel = canvas_image.getpixel((start_x + x, start_y + y))
 
                     if art_pixel != canvas_pixel:
-                        hex_color = "#{:02X}{:02X}{:02X}".format(art_pixel[0], art_pixel[1], art_pixel[2])
+                        hex_color = "#{:02X}{:02X}{:02X}".format(canvas_pixel[0], canvas_pixel[1], canvas_pixel[2])
                         return [start_x + x, start_y + y, hex_color]
 
         return None
+
+    import random
+
+    async def get_random_template_pixel(self, template, template_image):
+        img_width = template_image.width
+        img_height = template_image.height
+
+        x = random.randint(0, img_width - 1)
+        y = random.randint(0, img_height - 1)
+
+        color = template_image.getpixel((x, y))
+        hex_color = "#{:02X}{:02X}{:02X}".format(color[0], color[1], color[2])
+
+        return x + template["x"], y + template["y"], hex_color
 
     async def prepare_pixel_info(self, http_client: aiohttp.ClientSession):
         x = None
@@ -643,29 +660,43 @@ class Tapper:
             x, y, color = self.pixel_chain.get_pixel()
             pixel_id = get_pixel_id(x, y)
         elif self.template:
-            canvas_url = r'https://image.notpx.app/api/v2/image'
             template_image = await self.download_image(self.template['url'], http_client, cache=True)
-            if template_image is None:
-                return None
-            canvas_image = await self.download_image(canvas_url, http_client, cache=False)
-            diffs = self.find_difference(canvas_image=canvas_image, art_image=template_image,
-                                         start_x=int(self.template['x']),
-                                         start_y=int(self.template['y']))
-            x, y, color = diffs
-            pixel_id = get_pixel_id(x, y)
+            if template_image:
+                if settings.RANDOM_PIXEL_MODE:
+                    x, y, color = await self.get_random_template_pixel(self.template, template_image)
+                    pixel_id = get_pixel_id(x, y)
+                else:
+                    canvas_url = r'https://notpx.app/api/v2/image'
+                    if template_image is None:
+                        return None
+                    #ws_url = "wss://notpx.app/connection/websocket"
+                    #receive_image(self.auth_token, ws_url, self.proxy)
+                    canvas_image = await self.download_image(canvas_url, http_client, cache=False)
+                    diffs = self.find_difference(canvas_image=canvas_image, art_image=template_image,
+                                                 start_x=int(self.template['x']),
+                                                 start_y=int(self.template['y']))
+                    x, y, color = diffs
+                    pixel_id = get_pixel_id(x, y)
         elif settings.ENABLE_3X_REWARD:
             image_parser = JSArtParserAsync(http_client, proxy=self.proxy)
             arts = await image_parser.get_all_arts_data()
-            canvas_url = r'https://image.notpx.app/api/v2/image'
-            canvas_image = await self.download_image(canvas_url, http_client, cache=False)
-            if arts and (canvas_image is not None):
+            if settings.RANDOM_PIXEL_MODE:
                 selected_art = random.choice(arts)
                 art_image = await self.download_image(selected_art['url'], http_client, cache=True)
-                diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
-                                             start_x=int(selected_art['x']),
-                                             start_y=int(selected_art['y']))
-                x, y, color = diffs
+                x, y, color = await self.get_random_template_pixel(selected_art, art_image)
                 pixel_id = get_pixel_id(x, y)
+            else:
+                canvas_url = r'https://image.notpx.app/api/v2/image'
+                canvas_image = await self.download_image(canvas_url, http_client, cache=False)
+                if arts and (canvas_image is not None):
+                    selected_art = random.choice(arts)
+                    art_image = await self.download_image(selected_art['url'], http_client, cache=True)
+
+                    diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
+                                                 start_x=int(selected_art['x']),
+                                                 start_y=int(selected_art['y']))
+                    x, y, color = diffs
+                    pixel_id = get_pixel_id(x, y)
         else:
             color = random.choice(colors)
             pixel_id = random.randint(1, 1000000)
@@ -732,6 +763,7 @@ class Tapper:
                             f"{self.session_name} | Paint attempt {attempt + 1} failed. | Retrying in "
                             f"<y>{retry_delay}</y> sec | {error}"
                         )
+                        await self.choose_and_subscribe_template(http_client=http_client)
                         await self.update_status(http_client)
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
@@ -900,7 +932,8 @@ class Tapper:
             tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
                                                      ref="cmVmPTQ2NDg2OTI0Ng==",
                                                      short_name="squads")
-            await self.join_squad(tg_web_data, connector, user_agent)
+            await self.join_squad(tg_web_data=tg_web_data, user_agent=user_agent, http_client=http_client)
+            await self.close_session(http_client, connector)
         else:
             logger.info(f"{self.session_name} | You're already in squad")
         await asyncio.sleep(random.randint(5, 10))
