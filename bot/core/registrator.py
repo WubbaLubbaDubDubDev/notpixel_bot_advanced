@@ -2,7 +2,7 @@ import random
 
 from better_proxy import Proxy
 from pyrogram import Client
-from bot.config import settings, telrgram_versions
+from bot.config import settings, telegram_versions
 from bot.core.agents import generate_random_user_agent
 from bot.utils import logger
 from bot.utils.file_manager import save_to_json
@@ -21,7 +21,7 @@ async def register_sessions(proxy_chain = None) -> None:
         return None
 
     user_agent, android_version, android_device = generate_random_user_agent(browser_type='chrome')
-    app_version = f"Telegram Android {random.choice(telrgram_versions.versions)}"
+    app_version = f"Telegram Android {random.choice(telegram_versions.versions)}"
 
     if proxy_chain:
         raw_proxy = proxy_chain.get_next_proxy()

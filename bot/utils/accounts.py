@@ -3,7 +3,7 @@ import random
 
 from bot.core.agents import generate_random_user_agent
 from bot.utils import logger
-from bot.config import settings, telrgram_versions
+from bot.config import settings, telegram_versions
 from bot.utils.file_manager import load_from_json, save_to_json
 
 
@@ -41,7 +41,7 @@ class Accounts:
                     raw_proxy = input("Input the proxy in the format type://user:pass@ip:port (press Enter to use "
                                       "without proxy): ")
                 user_agent, android_version, android_device = generate_random_user_agent(browser_type='chrome')
-                app_version = f"Telegram Android {random.choice(telrgram_versions.versions)}"
+                app_version = f"Telegram Android {random.choice(telegram_versions.versions)}"
                 new_account = {
                         "session_name": session,
                         "user_agent": user_agent,
