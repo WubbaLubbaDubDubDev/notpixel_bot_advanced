@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import re
 import os
@@ -14,8 +15,9 @@ import requests
 from aiocfscrape import CloudflareScraper
 from aiohttp import ClientError, ClientSession, TCPConnector
 from colorama import Style, init
-from urllib.parse import unquote, quote
+from urllib.parse import unquote, quote, urlparse
 from PIL import Image
+from yarl import URL
 
 from bot.config.upgrades import upgrades
 
@@ -110,7 +112,7 @@ class Tapper:
 
         self.tg_client.proxy = proxy_dict
 
-        max_attempts = 5  # Максимальна кількість спроб
+        max_attempts = 5
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -494,8 +496,8 @@ class Tapper:
         max_retries = 5
 
         sorted_templates = sorted(templates, key=lambda x: x['subscribers'])
-        if len(sorted_templates) >= 10:
-            candidates = sorted_templates[:10]
+        if len(sorted_templates) >= 20:
+            candidates = sorted_templates[:20]
         else:
             candidates = sorted_templates
 
@@ -527,7 +529,7 @@ class Tapper:
                     f"Sleep <y>{retry_delay}</y> sec | {error}")
                 await asyncio.sleep(retry_delay)
                 continue
-
+        template_data['url'] = f"https://static.notpx.app/templates/{template_id}.png"
         return template_data
 
     async def subscribe_template(self, http_client: aiohttp.ClientSession, template_id):
@@ -558,19 +560,17 @@ class Tapper:
         logger.error(
             f"{self.session_name} | Failed to subscribe to template {template_id} after {max_retries} attempts")
 
-    async def download_image(self, url: str, http_client: aiohttp.ClientSession, cache: bool = False):
+    async def download_image(self, url: str, http_client: ClientSession, cache: bool = False):
         download_folder = "app_data/images/"
         file_name = os.path.basename(url)
-
         file_path = os.path.join(download_folder, file_name)
-        headers_image['User-Agent'] = self.user_agent
 
+        # Перевірка в пам'яті
         if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
-            # logger.info(f"{self.session_name} | Cached image retrieved from memory: {file_path}")
             return cached_image
 
+        # Перевірка наявності кешованого файлу на диску
         if cache and os.path.exists(file_path):
-            # logger.info(f"{self.session_name} | Cached image retrieved from disk: {file_path}")
             image = Image.open(file_path).convert('RGB')
             if self.memory_cache:
                 self.memory_cache.set(url, image)
@@ -580,45 +580,52 @@ class Tapper:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                proxies = None
-                if self.proxy:
-                    proxies = {
-                        'http': self.proxy,
-                        'https': self.proxy,
-                    }
+                headers = copy.deepcopy(headers_image)
+                headers['User-Agent'] = self.user_agent
+                parsed_url = urlparse(url)
+                domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
+                headers.update({"Cookie": f"__cf_bm={http_client.cookie_jar.filter_cookies(domain)['__cf_bm'].value}"})
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+                async with http_client.get(url, headers=headers, ssl=ssl_context,
+                                           proxy=self.proxy) as response:
+                    if response.status == 200:
+                        image_data = await response.read()
+                        image = Image.open(BytesIO(image_data)).convert('RGB')
 
-                response = requests.get(url, proxies=proxies, verify=certifi.where(), headers=headers_image)
-                if response.status_code == 200:
-                    image_data = response.content
-                    image = Image.open(BytesIO(image_data)).convert('RGB')
+                        if cache:
+                            os.makedirs(download_folder, exist_ok=True)
+                            image.save(file_path)
+                            logger.success(f"{self.session_name} | Image downloaded and saved to: {file_path}")
 
-                    if cache:
-                        os.makedirs(download_folder, exist_ok=True)
-                        image.save(file_path)
-                        logger.success(f"{self.session_name} | Image downloaded and saved to: {file_path}")
+                        if self.memory_cache:
+                            self.memory_cache.set(url, image)
+                        return image
 
-                    if self.memory_cache:
-                        self.memory_cache.set(url, image)
-                    return image
-                if response.status_code == 404:
-                    if response.status_code == 404:
-                        raise Exception(f"Resource not found (404). URL: {response.url}")
-                else:
+                    # Обробка 4xx помилок
+                    if 400 <= response.status < 500:
+                        raise Exception(f"Client error {response.status} for URL: {url}")
+
+                    # Інші статуси
                     delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Attempt {attempt} to download image failed | "
-                        f"Status: {response.status_code} | Sleep <y>{delay}</y> sec"
+                        f"{self.session_name} | Attempt {attempt + 1} to download image failed | "
+                        f"Status: {response.status} | Sleep <y>{delay}</y> sec"
                     )
                     await asyncio.sleep(delay)
+
             except Exception as error:
-                delay = base_delay * (attempt + 1)
-                logger.error(
-                    f"{self.session_name} | Unexpected error while downloading image | Attempt {attempt} | "
-                    f"Sleep <y>{delay}</y> sec | {error}"
-                )
-                await asyncio.sleep(delay)
-        logger.error(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
-        return None
+                # Зупинити повтори для 4xx помилок або перекинути виключення
+                if "Client error" in str(error):
+                    raise  # Перекидаємо помилку вище
+                else:
+                    delay = base_delay * (attempt + 1)
+                    logger.error(
+                        f"{self.session_name} | Unexpected error while downloading image | Attempt {attempt + 1} | "
+                        f"Sleep <y>{delay}</y> sec | {error}"
+                    )
+                    await asyncio.sleep(delay)
+
+        raise Exception(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
 
     def find_difference(self, art_image, canvas_image, start_x, start_y, block_size=10):
         original_width, original_height = art_image.size
@@ -680,9 +687,11 @@ class Tapper:
         colors = settings.PALETTE
 
         random.seed(os.urandom(8))
+
         if settings.DRAW_IMAGE:
             x, y, color = self.pixel_chain.get_pixel()
             pixel_id = get_pixel_id(x, y)
+
         elif self.template:
             template_image = await self.download_image(self.template['url'], http_client, cache=True)
             if template_image:
@@ -691,19 +700,21 @@ class Tapper:
                     pixel_id = get_pixel_id(x, y)
                 else:
                     canvas_url = r'https://notpx.app/api/v2/image'
-                    #ws_url = "wss://notpx.app/connection/websocket"
-                    #receive_image(self.auth_token, ws_url, self.proxy)
                     canvas_image = await self.download_image(canvas_url, http_client, cache=False)
-                    diffs = self.find_difference(canvas_image=canvas_image, art_image=template_image,
-                                                 start_x=int(self.template['x']),
-                                                 start_y=int(self.template['y']))
+
+                    diffs = self.find_difference(
+                        canvas_image=canvas_image,
+                        art_image=template_image,
+                        start_x=int(self.template['x']),
+                        start_y=int(self.template['y'])
+                    )
                     x, y, color = diffs
                     pixel_id = get_pixel_id(x, y)
-            else:
-                raise ValueError(f"Failed to prepare new pixel info")
+
         elif settings.ENABLE_3X_REWARD:
             image_parser = JSArtParserAsync(http_client, proxy=self.proxy)
             arts = await image_parser.get_all_arts_data()
+
             if settings.RANDOM_PIXEL_MODE:
                 selected_art = random.choice(arts)
                 art_image = await self.download_image(selected_art['url'], http_client, cache=True)
@@ -712,19 +723,25 @@ class Tapper:
             else:
                 canvas_url = r'https://image.notpx.app/api/v2/image'
                 canvas_image = await self.download_image(canvas_url, http_client, cache=False)
+
                 if arts and (canvas_image is not None):
                     selected_art = random.choice(arts)
                     art_image = await self.download_image(selected_art['url'], http_client, cache=True)
 
-                    diffs = self.find_difference(canvas_image=canvas_image, art_image=art_image,
-                                                 start_x=int(selected_art['x']),
-                                                 start_y=int(selected_art['y']))
+                    diffs = self.find_difference(
+                        canvas_image=canvas_image,
+                        art_image=art_image,
+                        start_x=int(selected_art['x']),
+                        start_y=int(selected_art['y'])
+                    )
                     x, y, color = diffs
                     pixel_id = get_pixel_id(x, y)
+
         else:
             color = random.choice(colors)
             pixel_id = random.randint(1, 1000000)
             x, y = get_coordinates(pixel_id=pixel_id, width=1000)
+
         return x, y, color, pixel_id
 
     async def paint(self, http_client: aiohttp.ClientSession):
@@ -775,9 +792,10 @@ class Tapper:
                             f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
                         )
                         if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE:
-                            logger.info(
-                                f"{self.session_name} | Reward is zero, opting for a different template.")
-                            await self.choose_and_subscribe_template(http_client=http_client)
+                            if not settings.RANDOM_PIXEL_MODE:
+                                logger.info(
+                                    f"{self.session_name} | Reward is zero, opting for a different template.")
+                                await self.choose_and_subscribe_template(http_client=http_client)
                         self.status['charges'] -= 1
                         await asyncio.sleep(delay=randint(2, 5))
                         break
@@ -810,14 +828,17 @@ class Tapper:
         max_retries = 5
         base_delay = 2
         for attempt in range(max_retries):
-            new_pixel_info = await self.prepare_pixel_info(http_client=http_client)
-            if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE:
-                logger.info(f"{self.session_name} | Choosing a different template as the current one failed to load.")
-                await self.subscribe_unpopular_template(http_client=http_client)
-                continue
-
-            x, y, color, pixel_id = new_pixel_info
             try:
+                new_pixel_info = await self.prepare_pixel_info(http_client=http_client)
+                if not new_pixel_info:
+                    raise ValueError("Failed to prepare pixel information")
+                if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE:
+                    logger.info(
+                        f"{self.session_name} | Choosing a different template as the current one failed to load.")
+                    await self.subscribe_unpopular_template(http_client=http_client)
+                    continue
+
+                x, y, color, pixel_id = new_pixel_info
                 paint_request = await http_client.post(
                     'https://notpx.app/api/v1/repaint/start',
                     json={"pixelId": pixel_id, "newColor": color}, proxy=self.proxy
@@ -915,22 +936,22 @@ class Tapper:
     async def subscribe_unpopular_template(self, http_client):
         logger.info(f"{self.session_name} | Retrieving the least popular template")
         templates = await self.get_templates(http_client=http_client)
-        if self.template:
-            templates = [item for item in templates if item['templateId'] != self.template["id"]]
+        current_template = await self.get_my_template(http_client=http_client)
+        if current_template:
+            templates = [item for item in templates if item['templateId'] != current_template["id"]]
         if not templates:
             logger.info(f"{self.session_name} | No templates found, subscription failed.")
             return  # Вихід з функції, якщо templates порожній
         unpopular_template = await self.get_unpopular_template(http_client=http_client, templates=templates)
-        concurrent_template = await self.get_my_template(http_client=http_client)
-        if concurrent_template and unpopular_template:
-            if concurrent_template["id"] != unpopular_template["id"]:
+        if current_template and unpopular_template:
+            if current_template["id"] != unpopular_template["id"]:
                 await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
                 self.template = unpopular_template
             else:
                 logger.info(f"{self.session_name} | Already subscribed to template ID: "
                             f"{unpopular_template['id']}")
                 self.template = unpopular_template
-        elif unpopular_template and not concurrent_template:
+        elif unpopular_template and not current_template:
             await self.subscribe_template(http_client=http_client, template_id=unpopular_template['id'])
             self.template = unpopular_template
         else:
