@@ -6,14 +6,17 @@ import os
 import random
 import base64
 import ssl
+import traceback
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
+from bot.utils import centrifuge
+from bot.utils.websocket_manager import WebsocketManager
 
 import requests
 
 from aiocfscrape import CloudflareScraper
-from aiohttp import ClientError, ClientSession, TCPConnector
+from aiohttp import ClientError, ClientSession, TCPConnector, WSMsgType
 from colorama import Style, init
 from urllib.parse import unquote, quote, urlparse
 from PIL import Image
@@ -81,6 +84,8 @@ def get_link(code):
 
 class Tapper:
     def __init__(self, tg_client: Client, first_run: bool, pixel_chain=None, memory_cache=None, user_agent=None):
+        self.websocket = None
+        self.websocket_token = None
         self.auth_token = None
         self.init_data = None
         self.user_info = None
@@ -267,7 +272,6 @@ class Tapper:
             response.raise_for_status()
             response_json = await response.json()
             return response_json
-
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when logging: {error}")
             await self.login(http_client)
@@ -448,7 +452,6 @@ class Tapper:
         max_retries = 5
         templates = []
 
-
         for offset in range(0, offset + 1, 12):
             url = f"https://notpx.app/api/v1/image/template/list?limit={12}&offset={offset}"
 
@@ -627,7 +630,7 @@ class Tapper:
 
         raise Exception(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
 
-    def find_difference(self, art_image, canvas_image, start_x, start_y, block_size=10):
+    def find_difference(self, art_image, canvas_image, start_x, start_y, block_size=8):
         original_width, original_height = art_image.size
         canvas_width, canvas_height = canvas_image.size
 
@@ -660,7 +663,7 @@ class Tapper:
                     canvas_pixel = canvas_image.getpixel((start_x + x, start_y + y))
 
                     if art_pixel != canvas_pixel:
-                        hex_color = "#{:02X}{:02X}{:02X}".format(canvas_pixel[0], canvas_pixel[1], canvas_pixel[2])
+                        hex_color = "#{:02X}{:02X}{:02X}".format(art_pixel[0], art_pixel[1], art_pixel[2])
                         return [start_x + x, start_y + y, hex_color]
 
         return None
@@ -699,8 +702,7 @@ class Tapper:
                     x, y, color = await self.get_random_template_pixel(self.template, template_image)
                     pixel_id = get_pixel_id(x, y)
                 else:
-                    canvas_url = r'https://notpx.app/api/v2/image'
-                    canvas_image = await self.download_image(canvas_url, http_client, cache=False)
+                    canvas_image = await self.websocket.get_canvas()
 
                     diffs = self.find_difference(
                         canvas_image=canvas_image,
@@ -721,8 +723,7 @@ class Tapper:
                 x, y, color = await self.get_random_template_pixel(selected_art, art_image)
                 pixel_id = get_pixel_id(x, y)
             else:
-                canvas_url = r'https://image.notpx.app/api/v2/image'
-                canvas_image = await self.download_image(canvas_url, http_client, cache=False)
+                canvas_image = await self.websocket.get_canvas()
 
                 if arts and (canvas_image is not None):
                     selected_art = random.choice(arts)
@@ -1062,6 +1063,10 @@ class Tapper:
                     self.init_data = f"initData {tg_web_data}"
                     logger.info(f"{self.session_name} | Started login")
                     self.user_info = await self.login(http_client=http_client)
+                    if not settings.RANDOM_PIXEL_MODE:
+                        self.websocket_token = self.user_info["websocketToken"]
+                        self.websocket = WebsocketManager(http_client=http_client, token=self.websocket_token,
+                                                          proxy=self.proxy)
                     logger.success(f"{self.session_name} | Successful login")
 
                     # Update access token creation time and token live time

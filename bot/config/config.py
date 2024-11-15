@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # Additional settings
     ENABLE_3X_REWARD: bool = True  # Enable 3x rewards
     USE_UNPOPULAR_TEMPLATE: bool = True  # Use an unpopular template
-    RANDOM_PIXEL_MODE: bool = True
-    USE_SPECIFIED_TEMPLATES: bool = True
+    RANDOM_PIXEL_MODE: bool = False
+    USE_SPECIFIED_TEMPLATES: bool = False
     SPECIFIED_TEMPLATES_ID_LIST: list[int] = ["305094295", "347622105", "472564792", "885255742",
                                               "1075675229", "1166863582", "1506332503", "1750502312",
                                               "6242019785", "6394700339", "6419192074", "6488960520",
