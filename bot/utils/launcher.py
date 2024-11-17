@@ -86,7 +86,8 @@ async def run_tasks(accounts: [Any, Any, list], used_session_names: [str]):
     for account in accounts:
         session_name = account.get("session_name")
         user_agent = account.get('user_agent')
-        raw_proxy = account.get('proxy')
+        proxy = account.get('proxy')
+        raw_proxy = None if proxy == "" else proxy
         android_device = account.get('android_device')
         android_version = account.get('android_version')
         app_version = account.get('app_version')

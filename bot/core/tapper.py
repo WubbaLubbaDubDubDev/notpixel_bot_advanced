@@ -169,7 +169,7 @@ class Tapper:
                     init_data['start_param'] = start_param
                     self.start_param = start_param
 
-                ordering = ["user", "chat_instance", "chat_type", "start_param", "auth_date", "hash", "signature"]
+                ordering = ["user", "chat_instance", "chat_type", "start_param", "auth_date", "signature", "hash"]
 
                 auth_token = '&'.join([var for var in ordering if var in init_data])
 
@@ -293,8 +293,7 @@ class Tapper:
 
             # Calculate the delay time using exponential backoff
             delay = base_delay * (2 ** attempt)  # Exponential backoff
-            logger.error(
-                f"{self.session_name} | Error during login: {error}. Retrying in {delay}s... (Attempt {attempt}"
+            logger.error(f"{self.session_name} | Error during login: {error}. Retrying in {delay}s... (Attempt {attempt}"
                 f"/{max_retries})")
 
             # Wait for the calculated delay before retrying
@@ -1063,7 +1062,10 @@ class Tapper:
     async def create_session(self, user_agent: str) -> tuple[ClientSession, TCPConnector]:
         _headers = {'User-Agent': user_agent}
         ssl_context = ssl.create_default_context(cafile=certifi.where())
-        connector = ProxyConnector(ssl=ssl_context).from_url(self.proxy)
+        if self.proxy:
+            connector = ProxyConnector(ssl=ssl_context).from_url(self.proxy)
+        else:
+            connector = TCPConnector(ssl=ssl_context)
         http_client = CloudflareScraper(headers=_headers, connector=connector)
         return http_client, connector
 
