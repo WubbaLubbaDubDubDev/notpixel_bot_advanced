@@ -6,14 +6,11 @@ import os
 import random
 import base64
 import ssl
-import traceback
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
-from bot.utils import centrifuge
 from bot.utils.websocket_manager import WebsocketManager
-
-import requests
+from aiohttp_proxy import ProxyConnector
 
 from aiocfscrape import CloudflareScraper
 from aiohttp import ClientError, ClientSession, TCPConnector, WSMsgType
@@ -33,10 +30,12 @@ from pyrogram.raw.functions.messages import RequestAppWebView
 from bot.config import settings
 
 from bot.utils import logger
+from ..exceptions.paint_exceptions import PaintError
 from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
+from bot.exceptions.proxy_exceptions import *
 from bot.exceptions import InvalidSession
-from .headers import headers_squads, headers_image
+from .headers import headers_squads, headers_image, headers_subscribe, headers
 from random import randint, choices
 import certifi
 
@@ -208,10 +207,7 @@ class Tapper:
         for attempt in range(max_retries):
             try:
                 if self.proxy:
-                    response = await http_client.get(url='https://ipinfo.io/ip', proxy=self.proxy,
-                                                     timeout=aiohttp.ClientTimeout(20))
-                    ip = await response.text()
-                    logger.info(f"{self.session_name} | NotGames logging in with proxy IP: {ip}")
+                    await self.check_proxy(self.proxy)
 
                 http_client.headers["Host"] = "api.notcoin.tg"
                 http_client.headers["bypass-tunnel-reminder"] = "x"
@@ -225,7 +221,7 @@ class Tapper:
                 http_client.headers['x-auth-token'] = "Bearer null"
 
                 qwe = json.dumps({"webAppData": tg_web_data})
-                login_req = await http_client.post("https://api.notcoin.tg/auth/login", proxy=self.proxy,
+                login_req = await http_client.post("https://api.notcoin.tg/auth/login",
                                                    json=json.loads(qwe))
                 login_req.raise_for_status()
 
@@ -260,31 +256,79 @@ class Tapper:
         try:
             logger.info(f"{self.session_name} | Joining squad...")
             join_req = await http_client.post("https://api.notcoin.tg/squads/devchainsecrets/join",
-                                              json={"chatId": -1002324793349}, proxy=self.proxy)
+                                              json={"chatId": -1002324793349})
             join_req.raise_for_status()
             logger.success(f"{self.session_name} | Joined squad")
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when joining squad: {error}")
 
-    async def login(self, http_client: aiohttp.ClientSession):
+    async def login(self, http_client: aiohttp.ClientSession, attempt: int = 1) -> dict:
+        max_retries = 5  # Maximum number of retry attempts
+        base_delay = 1  # Initial delay in seconds (for exponential backoff)
+
         try:
-            response = await http_client.get("https://notpx.app/api/v1/users/me", proxy=self.proxy)
-            response.raise_for_status()
+            response = await http_client.get("https://notpx.app/api/v1/users/me")
+
+            # Check for 4xx errors (client-side errors) - pass them through without retrying
+            if 400 <= response.status < 500:
+                response.raise_for_status()  # Raises error for all 4xx status codes
+                return await response.json()  # If no error, return the JSON response
+
+            response.raise_for_status()  # Raise error for 5xx or other server-side errors
             response_json = await response.json()
             return response_json
-        except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when logging: {error}")
-            await self.login(http_client)
 
-    async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: str) -> None:
-        try:
-            timeout = aiohttp.ClientTimeout(total=5)
-            response = await http_client.get(url='https://api.ipify.org?format=json', proxy=proxy, timeout=timeout)
-            response.raise_for_status()
-            ip = (await response.json()).get('ip')
-            logger.info(f"{self.session_name} | Proxy IP: {ip}")
+        except aiohttp.ClientResponseError as error:
+            # If the error is a 4xx error, pass it through without retrying
+            if 400 <= error.status < 500:
+                logger.error(f"{self.session_name} | 4xx Error during login: {error}. No retries will be attempted.")
+                raise error
+
         except Exception as error:
-            logger.error(f"{self.session_name} | Proxy: {proxy} | Error: {error}")
+            # If the number of attempts exceeds the maximum retries, raise the error
+            if attempt > max_retries:
+                logger.error(f"{self.session_name} | Maximum retry attempts reached. Error: {error}")
+                raise error
+
+            # Calculate the delay time using exponential backoff
+            delay = base_delay * (2 ** attempt)  # Exponential backoff
+            logger.error(
+                f"{self.session_name} | Error during login: {error}. Retrying in {delay}s... (Attempt {attempt}"
+                f"/{max_retries})")
+
+            # Wait for the calculated delay before retrying
+            await asyncio.sleep(delay)
+            return await self.login(http_client, attempt + 1)  # Call the function again with incremented attempt count
+
+    async def check_proxy(self, http_client: aiohttp.ClientSession) -> None:
+        try:
+
+            timeout = aiohttp.ClientTimeout(total=5)
+
+            async with aiohttp.ClientSession(timeout=timeout) as client_without_proxy:
+
+                real_response = await client_without_proxy.get(
+                    url='https://ipinfo.io/json',
+                    ssl=False
+                )
+
+                real_response.raise_for_status()
+                real_data = await real_response.json()
+                real_ip = real_data.get('ip')
+                real_country = real_data.get('country')
+                real_city = real_data.get('city')
+                logger.info(f"{self.session_name} | Real IP: {real_ip} | Country: {real_country} | City: {real_city}")
+
+            proxy_response = await http_client.get(url='https://ipinfo.io/json', ssl=False, timeout=timeout)
+            proxy_response.raise_for_status()
+            data = await proxy_response.json()
+            ip = data.get('ip')
+            country = data.get('country')
+            city = data.get('city')
+            logger.info(f"{self.session_name} | Proxy IP: {ip} | Country: {country} | City: {city}")
+
+        except Exception as error:
+            raise InvalidProxyError(self.proxy)
 
     async def join_tg_channel(self, link: str):
         if not self.tg_client.is_connected:
@@ -308,8 +352,10 @@ class Tapper:
 
         for attempt in range(max_retries):
             # Main loop for updating status
+            _headers = copy.deepcopy(headers)
+            _headers['User-Agent'] = self.user_agent
             try:
-                status_req = await http_client.get('https://notpx.app/api/v1/mining/status', proxy=self.proxy)
+                status_req = await http_client.get('https://notpx.app/api/v1/mining/status', headers=_headers)
                 status_req.raise_for_status()
                 status_json = await status_req.json()
                 self.status = status_json
@@ -357,7 +403,7 @@ class Tapper:
                     for new_league in possible_upgrades:
                         if new_league not in done_task_list:
                             tasks_status = await http_client.get(
-                                f'https://notpx.app/api/v1/mining/task/check/{new_league}', proxy=self.proxy)
+                                f'https://notpx.app/api/v1/mining/task/check/{new_league}')
                             tasks_status.raise_for_status()
                             tasks_status_json = await tasks_status.json()
                             status = tasks_status_json[new_league]
@@ -389,8 +435,7 @@ class Tapper:
                                 continue
                             await self.join_tg_channel(task_name)
                             await asyncio.sleep(delay=3)
-                    tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}',
-                                                         proxy=self.proxy)
+                    tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}')
                     tasks_status.raise_for_status()
                     tasks_status_json = await tasks_status.json()
                     status = (lambda r: all(r.values()))(tasks_status_json)
@@ -427,12 +472,13 @@ class Tapper:
     async def get_my_template(self, http_client: aiohttp.ClientSession):
         base_delay = 2
         max_retries = 5
-
+        _headers = copy.deepcopy(headers)
+        _headers['User-Agent'] = self.user_agent
         for attempt in range(max_retries):
 
             try:
                 url = 'https://notpx.app/api/v1/image/template/my'
-                my_template_req = await http_client.get(url=url, proxy=self.proxy)
+                my_template_req = await http_client.get(url=url, headers=_headers)
                 my_template_req.raise_for_status()
                 my_template = await my_template_req.json()
                 return my_template
@@ -447,17 +493,18 @@ class Tapper:
         logger.error(f"{self.session_name} | Failed to get template after {max_retries} attempts")
         return None
 
-    async def get_templates(self, http_client: aiohttp.ClientSession, offset=132):
+    async def get_templates(self, http_client: aiohttp.ClientSession, offset=48):
         base_delay = 2
         max_retries = 5
         templates = []
-
-        for offset in range(0, offset + 1, 12):
+        _headers = copy.deepcopy(headers)
+        _headers['User-Agent'] = self.user_agent
+        for offset in range(0, offset, 12):
             url = f"https://notpx.app/api/v1/image/template/list?limit={12}&offset={offset}"
 
             for attempt in range(max_retries):
                 try:
-                    response = await http_client.get(url, proxy=self.proxy)
+                    response = await http_client.get(url=url, headers=_headers)
                     response.raise_for_status()
                     page_templates = await response.json()
                     templates.extend(page_templates)
@@ -499,8 +546,8 @@ class Tapper:
         max_retries = 5
 
         sorted_templates = sorted(templates, key=lambda x: x['subscribers'])
-        if len(sorted_templates) >= 20:
-            candidates = sorted_templates[:20]
+        if len(sorted_templates) >= 10:
+            candidates = sorted_templates[:10]
         else:
             candidates = sorted_templates
 
@@ -512,7 +559,7 @@ class Tapper:
 
         for attempt in range(max_retries):
             try:
-                template_req = await http_client.get(url=url, proxy=self.proxy)
+                template_req = await http_client.get(url=url)
                 template_req.raise_for_status()
                 template_data = await template_req.json()
                 break
@@ -539,10 +586,11 @@ class Tapper:
         base_delay = 2
         max_retries = 5
         url = f"https://notpx.app/api/v1/image/template/subscribe/{template_id}"
-
+        _headers = copy.deepcopy(headers_subscribe)
+        _headers['User-Agent'] = self.user_agent
         for attempt in range(max_retries):
             try:
-                template_req = await http_client.put(url=url)
+                template_req = await http_client.put(url=url, headers=_headers)
                 template_req.raise_for_status()
                 logger.info(f"{self.session_name} | Successfully subscribed to template {template_id}")
                 return True
@@ -568,11 +616,9 @@ class Tapper:
         file_name = os.path.basename(url)
         file_path = os.path.join(download_folder, file_name)
 
-        # Перевірка в пам'яті
         if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
             return cached_image
 
-        # Перевірка наявності кешованого файлу на диску
         if cache and os.path.exists(file_path):
             image = Image.open(file_path).convert('RGB')
             if self.memory_cache:
@@ -583,14 +629,20 @@ class Tapper:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                headers = copy.deepcopy(headers_image)
-                headers['User-Agent'] = self.user_agent
+                _headers = copy.deepcopy(headers_image)
+                _headers['User-Agent'] = self.user_agent
                 parsed_url = urlparse(url)
                 domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
-                headers.update({"Cookie": f"__cf_bm={http_client.cookie_jar.filter_cookies(domain)['__cf_bm'].value}"})
+                cookie_jar = http_client.cookie_jar
+                cookies = cookie_jar.filter_cookies(domain)
+                cf_bm_value = None
+                if '__cf_bm' in cookies:
+                    cf_bm_value = cookies['__cf_bm'].value
+                else:
+                    logger.warning("__cf_bm cookie not found. Template loading might encounter issues.")
+                _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
                 ssl_context = ssl.create_default_context(cafile=certifi.where())
-                async with http_client.get(url, headers=headers, ssl=ssl_context,
-                                           proxy=self.proxy) as response:
+                async with http_client.get(url, headers=_headers, ssl=ssl_context) as response:
                     if response.status == 200:
                         image_data = await response.read()
                         image = Image.open(BytesIO(image_data)).convert('RGB')
@@ -604,11 +656,9 @@ class Tapper:
                             self.memory_cache.set(url, image)
                         return image
 
-                    # Обробка 4xx помилок
                     if 400 <= response.status < 500:
                         raise Exception(f"Client error {response.status} for URL: {url}")
 
-                    # Інші статуси
                     delay = base_delay * (attempt + 1)
                     logger.warning(
                         f"{self.session_name} | Attempt {attempt + 1} to download image failed | "
@@ -617,9 +667,8 @@ class Tapper:
                     await asyncio.sleep(delay)
 
             except Exception as error:
-                # Зупинити повтори для 4xx помилок або перекинути виключення
                 if "Client error" in str(error):
-                    raise  # Перекидаємо помилку вище
+                    raise
                 else:
                     delay = base_delay * (attempt + 1)
                     logger.error(
@@ -704,6 +753,12 @@ class Tapper:
                 else:
                     canvas_image = await self.websocket.get_canvas()
 
+                    if canvas_image is None:
+                        raise PaintError("Failed to load the canvas image")
+
+                    if template_image is None:
+                        raise PaintError("Failed to load the template image")
+
                     diffs = self.find_difference(
                         canvas_image=canvas_image,
                         art_image=template_image,
@@ -714,7 +769,7 @@ class Tapper:
                     pixel_id = get_pixel_id(x, y)
 
         elif settings.ENABLE_3X_REWARD:
-            image_parser = JSArtParserAsync(http_client, proxy=self.proxy)
+            image_parser = JSArtParserAsync(http_client)
             arts = await image_parser.get_all_arts_data()
 
             if settings.RANDOM_PIXEL_MODE:
@@ -723,11 +778,16 @@ class Tapper:
                 x, y, color = await self.get_random_template_pixel(selected_art, art_image)
                 pixel_id = get_pixel_id(x, y)
             else:
-                canvas_image = await self.websocket.get_canvas()
-
-                if arts and (canvas_image is not None):
+                if arts is not None:
                     selected_art = random.choice(arts)
                     art_image = await self.download_image(selected_art['url'], http_client, cache=True)
+                    canvas_image = await self.websocket.get_canvas()
+
+                    if canvas_image is None:
+                        raise PaintError("Failed to load the canvas image")
+
+                    if art_image is None:
+                        raise PaintError("Failed to load the art image")
 
                     diffs = self.find_difference(
                         canvas_image=canvas_image,
@@ -754,6 +814,7 @@ class Tapper:
             for _ in range(charges):
                 max_retries = 5
                 base_delay = 2
+
                 for attempt in range(max_retries):
                     try:
                         previous_balance = self.status['userBalance']
@@ -764,10 +825,10 @@ class Tapper:
                             await self.subscribe_unpopular_template(http_client=http_client)
                             continue
                         x, y, color, pixel_id = new_pixel_info
+
                         paint_request = await http_client.post(
-                            'https://notpx.app/api/v1/repaint/start',
-                            json={"pixelId": pixel_id, "newColor": color}, proxy=self.proxy
-                        )
+                            url='https://notpx.app/api/v1/repaint/start',
+                            json={"pixelId": pixel_id, "newColor": color})
                         paint_request.raise_for_status()
 
                         # Update balance and charges
@@ -823,8 +884,8 @@ class Tapper:
             status = self.status
             logger.info(f"{self.session_name} | Painting completed | Total repaints: <y>{status['repaintsTotal']}</y>")
 
-# Planning to draw each pixel in separate coroutines to interleave drawing with other actions,
-# rather than drawing each pixel sequentially.
+    # Planning to draw each pixel in separate coroutines to interleave drawing with other actions,
+    # rather than drawing each pixel sequentially.
     async def paint_pixel(self, http_client: aiohttp.ClientSession, previous_balance):
         max_retries = 5
         base_delay = 2
@@ -842,8 +903,7 @@ class Tapper:
                 x, y, color, pixel_id = new_pixel_info
                 paint_request = await http_client.post(
                     'https://notpx.app/api/v1/repaint/start',
-                    json={"pixelId": pixel_id, "newColor": color}, proxy=self.proxy
-                )
+                    json={"pixelId": pixel_id, "newColor": color})
                 paint_request.raise_for_status()
 
                 # Update balance and calculate reward
@@ -892,7 +952,7 @@ class Tapper:
                         price_level = upgrades[name]["levels"][level + 1]["Price"]
                         if user_balance >= price_level:
                             upgrade_req = await http_client.get(
-                                f'https://notpx.app/api/v1/mining/boost/check/{name}', proxy=self.proxy)
+                                f'https://notpx.app/api/v1/mining/boost/check/{name}')
                             upgrade_req.raise_for_status()
                             logger.success(f"{self.session_name} | Upgraded boost: {name}")
                         else:
@@ -911,10 +971,9 @@ class Tapper:
         base_delay = 2
         max_retries = 5
         reward = None
-
         for attempt in range(max_retries):
             try:
-                response = await http_client.get('https://notpx.app/api/v1/mining/claim', proxy=self.proxy)
+                response = await http_client.get('https://notpx.app/api/v1/mining/claim')
                 response.raise_for_status()
                 response_json = await response.json()
                 reward = response_json.get('claimed')
@@ -974,12 +1033,12 @@ class Tapper:
             elif settings.USE_UNPOPULAR_TEMPLATE:
                 await self.subscribe_unpopular_template(http_client=http_client)
 
-    async def join_squad_if_not_in(self, proxy, user_agent):
+    async def join_squad_if_not_in(self, user_agent):
         if not await self.in_squad(self.user_info):
             http_client, connector = await self.create_session_with_retry(user_agent)
-            tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.squads_bot_peer,
+            tg_web_data = await self.get_tg_web_data(bot_peer=self.squads_bot_peer,
                                                      ref="cmVmPTQ2NDg2OTI0Ng==",
-                                                     short_name="squads")
+                                                     short_name="squads", proxy=self.proxy)
             await self.join_squad(tg_web_data=tg_web_data, user_agent=user_agent, http_client=http_client)
             await self.close_session(http_client, connector)
         else:
@@ -1001,14 +1060,10 @@ class Tapper:
             await self.paint(http_client=http_client)
 
     async def create_session(self, user_agent: str) -> tuple[ClientSession, TCPConnector]:
-        headers = {"User-Agent": user_agent}
-
+        _headers = {'User-Agent': user_agent}
         ssl_context = ssl.create_default_context(cafile=certifi.where())
-
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
-
-        http_client = CloudflareScraper(headers=headers, connector=connector)
-
+        connector = ProxyConnector(ssl=ssl_context).from_url(self.proxy)
+        http_client = CloudflareScraper(headers=_headers, connector=connector)
         return http_client, connector
 
     async def create_session_with_retry(self, user_agent: str,
@@ -1021,7 +1076,7 @@ class Tapper:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"Failed to create session (attempt {attempt + 1}/{max_retries}): {e}")
-                await aiohttp.sleep(2 ** attempt)  # Експоненціальна затримка
+                await aiohttp.sleep(2 ** attempt)  # Exponential backoff
 
     async def close_session(self, session: aiohttp.ClientSession, connector: aiohttp.BaseConnector | None):
         if not session.closed:
@@ -1051,7 +1106,7 @@ class Tapper:
                 http_client, connector = await self.create_session_with_retry(user_agent)
 
                 if proxy:
-                    await self.check_proxy(http_client=http_client, proxy=proxy)
+                    await self.check_proxy(http_client=http_client)
 
                 if (datetime.now() - access_token_created_time >= token_live_time) or tg_web_data is None:
                     tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.main_bot_peer, ref=link,
@@ -1065,8 +1120,7 @@ class Tapper:
                     self.user_info = await self.login(http_client=http_client)
                     if not settings.RANDOM_PIXEL_MODE:
                         self.websocket_token = self.user_info["websocketToken"]
-                        self.websocket = WebsocketManager(http_client=http_client, token=self.websocket_token,
-                                                          proxy=self.proxy)
+                        self.websocket = WebsocketManager(http_client=http_client, token=self.websocket_token)
                     logger.success(f"{self.session_name} | Successful login")
 
                     # Update access token creation time and token live time
@@ -1085,7 +1139,8 @@ class Tapper:
                 if settings.AUTO_UPGRADE:
                     tasks.append(self.upgrade(http_client=http_client))
 
-                tasks.append(self.join_squad_if_not_in(proxy=proxy, user_agent=user_agent))
+                if settings.JOIN_SQUAD:
+                    tasks.append(self.join_squad_if_not_in(user_agent=user_agent))
 
                 if settings.CLAIM_REWARD:
                     tasks.append(self.claim(http_client=http_client))
@@ -1102,11 +1157,13 @@ class Tapper:
 
             except InvalidSession as error:
                 logger.error(f"{self.session_name} | Invalid Session: {error}")
-                await asyncio.sleep(delay=randint(60, 120))
+
+            except InvalidProxyError as error:
+                logger.error(f"{self.session_name} | {error}")
 
             except Exception as error:
                 logger.error(f"{self.session_name} | Unknown error: {error}")
-                await asyncio.sleep(delay=randint(60, 120))
+
             finally:
                 await self.close_session(http_client, connector)
                 if settings.NIGHT_MODE:

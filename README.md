@@ -41,6 +41,7 @@
 | **JOIN_TG_CHANNELS**            | Automatically join Telegram channels (default - True)                      |
 | **CLAIM_REWARD**                | Automatically claim rewards (default - True)                               |
 | **AUTO_UPGRADE**                | Automatically upgrade items or settings (default - True)                   |
+| **JOIN_SQUAD**                  | Automatically join squad (default - True)                                  |
 | **REF_ID**                      | Referral ID                                                                |
 | **IN_USE_SESSIONS_PATH**        | Path to the file where used sessions are stored                            |
 | **AUTO_BIND_PROXIES_FROM_FILE** | Automatically bind proxies from file (default - False)                     |

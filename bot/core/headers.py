@@ -1,18 +1,20 @@
-headers = {
+headers= {
     'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'ru,en;q=0.9,en-GB;q=0.8,en-US;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br, zstd',
-    'Content-Type': 'application/json',
+    'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
+    'Cache-Control': 'no-cache',
     'Origin': 'https://app.notpx.app',
+    'Pragma': 'no-cache',
+    'Priority': 'u=1, i',
     'Referer': 'https://app.notpx.app/',
+    'Sec-CH-UA': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
+    'Sec-CH-UA-Mobile': '?1',
+    'Sec-CH-UA-Platform': '"Android"',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-site',
-    'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Microsoft Edge";v="128", "Microsoft Edge WebView2";v="128"',
-    'Sec-Ch-Ua-mobile': '?0',
-    'Sec-Ch-Ua-platform': '"Android"',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) '
-                  'Chrome/94.0.4606.61 Mobile Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
+    'X-Requested-With': 'org.telegram.messenger.web'
 }
 
 headers_squads = {
@@ -45,6 +47,47 @@ headers_image = {
     'Sec-Fetch-Mode': 'no-cors',
     'Sec-Fetch-Site': 'same-site',
     'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
-                  'Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 35; HIGH)',
+                  'Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
+    'X-Requested-With': 'org.telegram.messenger.web'
+}
+
+headers_subscribe = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Encoding': 'gzip, deflate, br, zstd',
+    'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
+    'Cache-Control': 'no-cache',
+    'Content-Length': '0',
+    'Origin': 'https://app.notpx.app',
+    'Pragma': 'no-cache',
+    'Priority': 'u=1, i',
+    'Referer': 'https://app.notpx.app/',
+    'Sec-CH-UA': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
+    'Sec-CH-UA-Mobile': '?1',
+    'Sec-CH-UA-Platform': '"Android"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 6; Android 15; SDK 35; HIGH)',
+    'X-Requested-With': 'org.telegram.messenger.web'
+}
+
+headers_start = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Encoding': 'gzip, deflate, br, zstd',
+    'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
+    'Cache-Control': 'no-cache',
+    'Content-Length': '39',
+    'Content-Type': 'application/json',
+    'Origin': 'https://app.notpx.app',
+    'Pragma': 'no-cache',
+    'Priority': 'u=1, i',
+    'Referer': 'https://app.notpx.app/',
+    'Sec-CH-UA': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
+    'Sec-CH-UA-Mobile': '?1',
+    'Sec-CH-UA-Platform': '"Android"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 6; Android 15; SDK 35; HIGH)',
     'X-Requested-With': 'org.telegram.messenger.web'
 }

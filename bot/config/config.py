@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     JOIN_TG_CHANNELS: bool = True  # Join Telegram channels
     CLAIM_REWARD: bool = True  # Automatically claim rewards
     AUTO_UPGRADE: bool = True  # Automatically upgrade
+    JOIN_SQUAD: bool = True  # Automatically join squad
 
     # Referral settings
     REF_ID: str = 'f411905106'  # Referral ID

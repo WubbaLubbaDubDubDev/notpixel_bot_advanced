@@ -25,11 +25,10 @@ class WebSocketUnhandledError(WebsocketError):
 
 
 class WebsocketManager:
-    def __init__(self, http_client: ClientSession, token: str, proxy: str = None):
+    def __init__(self, http_client: ClientSession, token: str):
         self.websocket = None
         self.payload = None
         self.websocket_url = "wss://notpx.app/connection/websocket"
-        self.proxy = proxy
         self.http_client = http_client
         self.token = token
 
@@ -68,7 +67,6 @@ class WebsocketManager:
             self.websocket = await self.http_client.ws_connect(
                 url=self.websocket_url,
                 protocols=["centrifuge-protobuf"],
-                proxy=self.proxy
             )
             self.payload = await self.__generate_payload(self.token)
             await self.websocket.send_bytes(self.payload)
