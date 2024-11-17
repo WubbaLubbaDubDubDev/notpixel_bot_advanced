@@ -160,6 +160,7 @@ class Tapper:
                     'chat_instance': re.findall(r'chat_instance=([^&]+)', tg_web_data)[0],
                     'chat_type': re.findall(r'chat_type=([^&]+)', tg_web_data)[0],
                     'hash': re.findall(r'hash=([^&]+)', tg_web_data)[0],
+                    'signature': re.findall(r'signature=([^&]+)', tg_web_data)[0],
                     'user': quote(re.findall(r'user=([^&]+)', tg_web_data)[0]),
                 }
 
@@ -168,7 +169,7 @@ class Tapper:
                     init_data['start_param'] = start_param
                     self.start_param = start_param
 
-                ordering = ["user", "chat_instance", "chat_type", "start_param", "auth_date", "hash"]
+                ordering = ["user", "chat_instance", "chat_type", "start_param", "auth_date", "hash", "signature"]
 
                 auth_token = '&'.join([var for var in ordering if var in init_data])
 
@@ -1001,7 +1002,7 @@ class Tapper:
             templates = [item for item in templates if item['templateId'] != current_template["id"]]
         if not templates:
             logger.info(f"{self.session_name} | No templates found, subscription failed.")
-            return  # Вихід з функції, якщо templates порожній
+            return
         unpopular_template = await self.get_unpopular_template(http_client=http_client, templates=templates)
         if current_template and unpopular_template:
             if current_template["id"] != unpopular_template["id"]:
