@@ -308,24 +308,20 @@ class Tapper:
             async with aiohttp.ClientSession(timeout=timeout) as client_without_proxy:
 
                 real_response = await client_without_proxy.get(
-                    url='https://ipinfo.io/json',
+                    url='https://httpbin.org/ip',
                     ssl=False
                 )
 
                 real_response.raise_for_status()
                 real_data = await real_response.json()
-                real_ip = real_data.get('ip')
-                real_country = real_data.get('country')
-                real_city = real_data.get('city')
-                logger.info(f"{self.session_name} | Real IP: {real_ip} | Country: {real_country} | City: {real_city}")
+                real_ip = real_data.get('origin')
+                logger.info(f"{self.session_name} | Real IP: {real_ip}")
 
-            proxy_response = await http_client.get(url='https://ipinfo.io/json', ssl=False, timeout=timeout)
+            proxy_response = await http_client.get(url='https://httpbin.org/ip', ssl=False, timeout=timeout)
             proxy_response.raise_for_status()
             data = await proxy_response.json()
-            ip = data.get('ip')
-            country = data.get('country')
-            city = data.get('city')
-            logger.info(f"{self.session_name} | Proxy IP: {ip} | Country: {country} | City: {city}")
+            ip = data.get('origin')
+            logger.info(f"{self.session_name} | Proxy IP: {ip}")
 
         except Exception as error:
             raise InvalidProxyError(self.proxy)
