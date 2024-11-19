@@ -49,7 +49,7 @@
 | **DRAWING_START_COORDINATES**   | Starting coordinates for drawing (default - [0, 0])                        |
 | **IMAGE_PATH**                  | Path to the image file for drawing (default - "10x10.png")                 |
 | **PALETTE**                     | List of colors used for drawing                                            |
-| **ENABLE_3X_REWARD**            | Enable 3x rewards (default - True)                                         |
+| **DAW_MAIN_TEMPLATE**           | Enable 3x rewards (default - True)                                         |
 | **USE_UNPOPULAR_TEMPLATE**      | Use an unpopular template for drawing (default - True)                     |
 | **USE_SPECIFIED_TEMPLATES**     | Enable using a predefined list of templates for drawing (default - False)  |
 | **SPECIFIED_TEMPLATES_ID_LIST** | List of template IDs to use when **USE_SPECIFIED_TEMPLATES** is enabled    |
