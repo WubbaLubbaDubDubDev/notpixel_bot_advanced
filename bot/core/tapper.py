@@ -30,6 +30,7 @@ from pyrogram.raw.functions.messages import RequestAppWebView
 from bot.config import settings
 
 from bot.utils import logger
+from .enum import Option
 from ..exceptions.paint_exceptions import PaintError
 from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
@@ -301,28 +302,26 @@ class Tapper:
             return await self.login(http_client, attempt + 1)  # Call the function again with incremented attempt count
 
     async def check_proxy(self, http_client: aiohttp.ClientSession) -> None:
+        timeout = aiohttp.ClientTimeout(total=5)
         try:
-
-            timeout = aiohttp.ClientTimeout(total=5)
-
             async with aiohttp.ClientSession(timeout=timeout) as client_without_proxy:
-
                 real_response = await client_without_proxy.get(
                     url='https://httpbin.org/ip',
                     ssl=False
                 )
-
                 real_response.raise_for_status()
                 real_data = await real_response.json()
                 real_ip = real_data.get('origin')
                 logger.info(f"{self.session_name} | Real IP: {real_ip}")
+        except Exception as error:
+            raise error
 
+        try:
             proxy_response = await http_client.get(url='https://httpbin.org/ip', ssl=False, timeout=timeout)
             proxy_response.raise_for_status()
             data = await proxy_response.json()
             ip = data.get('origin')
             logger.info(f"{self.session_name} | Proxy IP: {ip}")
-
         except Exception as error:
             raise InvalidProxyError(self.proxy)
 
@@ -727,6 +726,18 @@ class Tapper:
 
         return x + template["x"], y + template["y"], hex_color
 
+    def determine_option(self):
+        if settings.DRAW_IMAGE:
+            return Option.USER_IMAGE
+        elif self.template and settings.DAW_MAIN_TEMPLATE:
+            options = [Option.USER_TEMPLATE, Option.MAIN_TEMPLATE]
+            weights = (70, 30)
+            return random.choices(options, weights=weights, k=1)[0]
+        elif self.template and not settings.DAW_MAIN_TEMPLATE:
+            return Option.USER_TEMPLATE
+        elif not self.template and settings.DAW_MAIN_TEMPLATE:
+            return Option.MAIN_TEMPLATE
+
     async def prepare_pixel_info(self, http_client: aiohttp.ClientSession):
         x = None
         y = None
@@ -736,11 +747,12 @@ class Tapper:
 
         random.seed(os.urandom(8))
 
-        if settings.DRAW_IMAGE:
+        option = self.determine_option()
+
+        if option == Option.USER_IMAGE:
             x, y, color = self.pixel_chain.get_pixel()
             pixel_id = get_pixel_id(x, y)
-
-        elif self.template:
+        elif option == Option.USER_TEMPLATE:
             template_image = await self.download_image(self.template['url'], http_client, cache=True)
             if template_image:
                 if settings.RANDOM_PIXEL_MODE:
@@ -764,7 +776,7 @@ class Tapper:
                     x, y, color = diffs
                     pixel_id = get_pixel_id(x, y)
 
-        elif settings.ENABLE_3X_REWARD:
+        elif option == option.MAIN_TEMPLATE:
             image_parser = JSArtParserAsync(http_client)
             arts = await image_parser.get_all_arts_data()
 
@@ -799,7 +811,7 @@ class Tapper:
             pixel_id = random.randint(1, 1000000)
             x, y = get_coordinates(pixel_id=pixel_id, width=1000)
 
-        return x, y, color, pixel_id
+        return (x, y, color, pixel_id), option
 
     async def paint(self, http_client: aiohttp.ClientSession):
         logger.info(f"{self.session_name} | Painting started")
@@ -814,8 +826,8 @@ class Tapper:
                 for attempt in range(max_retries):
                     try:
                         previous_balance = self.status['userBalance']
-                        new_pixel_info = await self.prepare_pixel_info(http_client=http_client)
-                        if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE:
+                        new_pixel_info, option = await self.prepare_pixel_info(http_client=http_client)
+                        if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
                             logger.info(
                                 f"{self.session_name} | Choosing a different template as the current one failed to load.")
                             await self.subscribe_unpopular_template(http_client=http_client)
@@ -849,7 +861,7 @@ class Tapper:
                             f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
                             f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
                         )
-                        if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE:
+                        if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
                             if not settings.RANDOM_PIXEL_MODE:
                                 logger.info(
                                     f"{self.session_name} | Reward is zero, opting for a different template.")
@@ -882,58 +894,6 @@ class Tapper:
 
     # Planning to draw each pixel in separate coroutines to interleave drawing with other actions,
     # rather than drawing each pixel sequentially.
-    async def paint_pixel(self, http_client: aiohttp.ClientSession, previous_balance):
-        max_retries = 5
-        base_delay = 2
-        for attempt in range(max_retries):
-            try:
-                new_pixel_info = await self.prepare_pixel_info(http_client=http_client)
-                if not new_pixel_info:
-                    raise ValueError("Failed to prepare pixel information")
-                if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE:
-                    logger.info(
-                        f"{self.session_name} | Choosing a different template as the current one failed to load.")
-                    await self.subscribe_unpopular_template(http_client=http_client)
-                    continue
-
-                x, y, color, pixel_id = new_pixel_info
-                paint_request = await http_client.post(
-                    'https://notpx.app/api/v1/repaint/start',
-                    json={"pixelId": pixel_id, "newColor": color})
-                paint_request.raise_for_status()
-
-                # Update balance and calculate reward
-                current_balance = (await paint_request.json())["balance"]
-                if current_balance:
-                    self.status['userBalance'] = current_balance
-
-                delta = None
-                if current_balance and previous_balance:
-                    delta = round(current_balance - previous_balance, 1)
-                else:
-                    logger.warning(f"{self.session_name} | Failed to retrieve reward data.")
-
-                # Logging the painting result
-                r, g, b = hex_to_rgb(color)
-                ansi_color = f'\033[48;2;{r};{g};{b}m'
-                opposite_r, opposite_g, opposite_b = get_opposite_color(r, g, b)
-                opposite_color = f"\033[38;2;{opposite_r};{opposite_g};{opposite_b}m"
-                logger.success(
-                    f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
-                    f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
-                )
-                return
-            except Exception as error:
-                retry_delay = base_delay * (attempt + 1)
-                logger.warning(
-                    f"{self.session_name} | Paint attempt {attempt + 1} failed. Retrying in <y>{retry_delay}</y> sec | {error}"
-                )
-                await self.update_status(http_client)
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-                else:
-                    logger.error(f"{self.session_name} | Maximum retry attempts reached. Ending paint_pixel process.")
-                    return
 
     async def upgrade(self, http_client: aiohttp.ClientSession):
         logger.info(f"{self.session_name} | Upgrading started")

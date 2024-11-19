@@ -50,7 +50,7 @@ class Settings(BaseSettings):
         "#493AC1", "#811E9F", "#a00357", "#6D482F", "#000000"]
 
     # Additional settings
-    ENABLE_3X_REWARD: bool = True  # Enable 3x rewards
+    DAW_MAIN_TEMPLATE: bool = True  # Enable drawing using the main template
     USE_UNPOPULAR_TEMPLATE: bool = True  # Use an unpopular template
     RANDOM_PIXEL_MODE: bool = False
     USE_SPECIFIED_TEMPLATES: bool = False
