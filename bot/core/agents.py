@@ -188,7 +188,7 @@ def generate_random_user_agent():
     user_agent = _get_user_agent(browser_version, android_version, sdk_version, android_device,
                                  telegram_version, device_perf)
 
-    return user_agent
+    return user_agent, android_version, android_device, telegram_version
 
 
 def update_useragent(old_useragent, telegram_version=None, android_version=None, android_device=None):
@@ -216,9 +216,6 @@ def update_useragent(old_useragent, telegram_version=None, android_version=None,
 
 
 def _get_user_agent(browser_version, android_version, sdk_version, android_device, telegram_version, device_perf):
-    return (
-        f"Mozilla/5.0 (Linux; Android {android_version}; {android_device}) "
-        f"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version} Mobile Safari/537.36 "
-        f"Telegram-Android/{telegram_version} ({android_device}; Android {android_version}; SDK {sdk_version}; "
-        f"{device_perf})"
-    )
+    return (f"Mozilla/5.0 (Linux; Android {android_version}; {android_device}) AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{browser_version} Mobile Safari/537.36 Telegram-Android/{telegram_version} ({android_device}; "
+            f"Android {android_version}; SDK {sdk_version}; {device_perf})")

@@ -36,7 +36,7 @@ from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions.proxy_exceptions import *
 from bot.exceptions import InvalidSession
-from .headers import headers_squads, headers_image, headers_subscribe, headers
+from .headers import headers_squads, headers_image, headers_subscribe, headers, headers_check
 from random import randint, choices
 import certifi
 
@@ -1118,7 +1118,9 @@ class Tapper:
         await self.subscribe_tournament_template(http_client=http_client, template_id=chosen_template["id"])
 
     async def check_response(self, http_client):
-        response = await http_client.post("https://notpx.app/api/v1/offer/check")
+        headers_ = copy.deepcopy(headers_check)
+        headers_['User-Agent'] = self.user_agent
+        response = await http_client.post("https://notpx.app/api/v1/offer/check", headers=headers_)
         response.raise_for_status()
 
     async def create_session(self, user_agent: str) -> tuple[ClientSession, TCPConnector]:
