@@ -20,7 +20,7 @@ async def register_sessions(proxy_chain = None) -> None:
     if not session_name:
         return None
 
-    user_agent, android_version, android_device = generate_random_user_agent(browser_type='chrome')
+    user_agent, android_version, android_device = generate_random_user_agent()
     app_version = f"Telegram Android {random.choice(telegram_versions.versions)}"
 
     if proxy_chain:

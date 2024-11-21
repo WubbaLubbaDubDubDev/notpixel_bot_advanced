@@ -1,11 +1,10 @@
 import os
 import random
 
-from bot.core.agents import generate_random_user_agent
+from bot.core.agents import *
 from bot.utils import logger
 from bot.config import settings, telegram_versions
-from bot.utils.file_manager import load_from_json, save_to_json
-
+from bot.utils.file_manager import load_from_json, save_to_json, rewrite_json
 
 class Accounts:
     def __init__(self):
@@ -40,7 +39,7 @@ class Accounts:
                 if not proxy_chain and ('y' in ans.lower()):
                     raw_proxy = input("Input the proxy in the format type://user:pass@ip:port (press Enter to use "
                                       "without proxy): ")
-                user_agent, android_version, android_device = generate_random_user_agent(browser_type='chrome')
+                user_agent, android_version, android_device = generate_random_user_agent()
                 app_version = f"Telegram Android {random.choice(telegram_versions.versions)}"
                 new_account = {
                         "session_name": session,
@@ -54,6 +53,27 @@ class Accounts:
                 available_accounts.append(new_account)
                 if proxy_chain:
                     logger.success(f'Account {session} added successfully with proxy: {raw_proxy}')
+        to_update = 0
+        for account in available_accounts:
+            if not ("Telegram-Android" in account["user_agent"]):
+                to_update += 1
+
+        if to_update > 0:
+            print("Updating user-agents...")
+            for account in available_accounts:
+                if not ("Telegram-Android" in account["user_agent"]):
+                    if all(key in account for key in ["android_device", "android_version", "app_version"]):
+
+                        app_version = re.search(r"Android (\d+(\.\d+)+)",
+                                                account["app_version"]).group(1)
+                        android_version = account["android_version"]
+                        android_device = account["android_device"]
+                        account["user_agent"] = update_useragent(account["user_agent"], app_version,
+                                                                 android_version, android_device)
+                    else:
+                        account["user_agent"] = update_useragent(old_useragent=account["user_agent"])
+            rewrite_json(path=f'sessions/accounts.json', dict_=available_accounts)
+            print("User agents have been successfully updated!")
         return available_accounts
 
     def pars_sessions(self):
@@ -68,7 +88,6 @@ class Accounts:
     async def get_accounts(self, proxy_chain=None):
         sessions = self.pars_sessions()
         available_accounts = self.get_available_accounts(sessions, proxy_chain=proxy_chain)
-
         if not available_accounts:
             raise ValueError("Available accounts not found! Please add accounts in 'sessions' folder")
         else:

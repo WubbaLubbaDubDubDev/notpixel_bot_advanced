@@ -1,4 +1,5 @@
 import json
+import os
 
 
 class ProxyChain:
@@ -10,13 +11,14 @@ class ProxyChain:
 
     def load_proxies_from_json(self):
         file_path = 'sessions/accounts.json'
-        with open(file_path, 'r') as file:
-            data = json.load(file)
-            for entry in data:
-                if 'proxy' in entry:
-                    proxy = entry['proxy']
-                    if proxy in self.proxies:
-                        self.used_proxies.add(proxy)
+        if not os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+                for entry in data:
+                    if 'proxy' in entry:
+                        proxy = entry['proxy']
+                        if proxy in self.proxies:
+                            self.used_proxies.add(proxy)
 
     def load_proxies_from_txt(self):
         file_path = 'bot/config/proxies.txt'

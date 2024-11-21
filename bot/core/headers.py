@@ -1,4 +1,4 @@
-headers= {
+headers = {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Encoding': 'gzip, deflate, br, zstd',
     'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
@@ -13,13 +13,14 @@ headers= {
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-site',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
+                  'Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
     'X-Requested-With': 'org.telegram.messenger.web'
 }
 
 headers_squads = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/94.0.4606.61 Mobile Safari/537.36",
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
+                  'Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.5",
     "Accept-Encoding": "gzip, deflate, br, zstd",
@@ -67,7 +68,8 @@ headers_subscribe = {
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-site',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 6; Android 15; SDK 35; HIGH)',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
+                  'Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
     'X-Requested-With': 'org.telegram.messenger.web'
 }
 
@@ -88,6 +90,7 @@ headers_start = {
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-site',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 6; Android 15; SDK 35; HIGH)',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
+                  'Mobile Safari/537.36 Telegram-Android/11.3.4 (Google Pixel 7; Android 14; SDK 34; HIGH)',
     'X-Requested-With': 'org.telegram.messenger.web'
 }

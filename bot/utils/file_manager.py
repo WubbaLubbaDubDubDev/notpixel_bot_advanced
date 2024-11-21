@@ -30,3 +30,8 @@ def save_to_json(path: str, dict_):
         with open(path, 'x', encoding='utf-8') as file:
             json.dump([dict_], file, ensure_ascii=False, indent=2)
 
+
+def rewrite_json(path: str, dict_):
+    with open(path, 'w', encoding='utf-8') as file:
+        json.dump(dict_, file, ensure_ascii=False, indent=2)
+

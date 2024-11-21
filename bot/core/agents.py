@@ -1,4 +1,8 @@
 import random
+import re
+
+from bot.config.device_performance import device_performance
+from bot.config.telegram_versions import versions
 
 existing_versions = {
     110: [
@@ -136,34 +140,85 @@ existing_versions = {
     ]
 }
 
+android_sdk_mapping = {
+    "7.0": 24,
+    "7.1": 25,
+    "8.0": 26,
+    "8.1": 27,
+    "9.0": 28,
+    "10.0": 29,
+    "11.0": 30,
+    "12.0": 31,
+    "13.0": 33,
+    "14.0": 34,
+    "15.0": 35
+}
 
-def generate_random_user_agent(browser_type='chrome'):
+
+def _extract_device_name(user_agent):
+    device_names = []
+    for performance in device_performance.keys():
+        device_names.extend(device_performance[performance])
+
+    for device in device_names:
+        if device in user_agent:
+            return device
+    return None
+
+
+def _get_android_version(user_agent: str) -> None | str:
+    android_version_pattern = re.compile(r'Android (\d+\.\d+)')
+    match = android_version_pattern.search(user_agent)
+
+    if match:
+        return match.group(1)
+    else:
+        return None
+
+
+def generate_random_user_agent():
     major_version = random.choice(list(existing_versions.keys()))
     browser_version = random.choice(existing_versions[major_version])
+    device_perf = random.choice(list(device_performance.keys()))
+    android_device = random.choice(device_performance[device_perf])
+    android_version = random.choice(list(android_sdk_mapping.keys()))
+    sdk_version = android_sdk_mapping[android_version]
+    telegram_version = random.choice(versions)
 
-    android_versions = ['7.0', '7.1', '8.0', '8.1', '9.0', '10.0', '11.0', '12.0', '13.0', '14.0', '15.0']
-    android_device = random.choice([
-            'SM-G960F', 'SM-G973F', 'SM-G980F', 'SM-G960U', 'SM-G973U', 'SM-G980U',
-            'SM-A505F', 'SM-A515F', 'SM-A525F', 'SM-N975F', 'SM-N986B', 'SM-N981B',
-            'SM-F711B', 'SM-F916B', 'SM-G781B', 'SM-G998B', 'SM-G991B', 'SM-G996B',
-            'SM-G990E', 'SM-G990B2', 'SM-G990U', 'SM-G990B', 'SM-G990', 'SM-G990',
-            'Pixel 2', 'Pixel 2 XL', 'Pixel 3', 'Pixel 3 XL', 'Pixel 4', 'Pixel 4 XL',
-            'Pixel 4a', 'Pixel 5', 'Pixel 5a', 'Pixel 6', 'Pixel 6 Pro', 'Pixel 6 XL',
-            'Pixel 6a', 'Pixel 7', 'Pixel 7 Pro', 'IN2010', 'IN2023',
-            'LE2117', 'LE2123', 'OnePlus Nord', 'IV2201', 'NE2215', 'CPH2423',
-            'NE2210', 'Mi 9', 'Mi 10', 'Mi 11', 'Mi 12', 'Redmi Note 8',
-            'Redmi Note 8 Pro', 'Redmi Note 9', 'Redmi Note 9 Pro', 'Redmi Note 10',
-            'Redmi Note 10 Pro', 'Redmi Note 11', 'Redmi Note 11 Pro', 'Redmi Note 12',
-            'Redmi Note 12 Pro', 'VOG-AL00', 'ANA-AL00', 'TAS-AL00',
-            'OCE-AN10', 'J9150', 'J9210', 'LM-G820', 'L-51A', 'Nokia 8.3',
-            'Nokia 9 PureView', 'POCO F5', 'POCO F5 Pro', 'POCO M3', 'POCO M3 Pro'
-        ])
-    android_version = random.choice(android_versions)
-    if browser_type == 'chrome':
-        return (f"Mozilla/5.0 (Linux; Android {android_version}; {android_device}) AppleWebKit/537.36 "
-                f"(KHTML, like Gecko) Chrome/{browser_version} Mobile Safari/537.36"), android_version, android_device
-    elif browser_type == 'firefox':
-        return (f"Mozilla/5.0 (Android {android_version}; Mobile; rv:{browser_version}.0) "
-                f"Gecko/{browser_version}.0 Firefox/{browser_version}.0")
+    user_agent = _get_user_agent(browser_version, android_version, sdk_version, android_device,
+                                 telegram_version, device_perf)
 
-    return None
+    return user_agent
+
+
+def update_useragent(old_useragent, telegram_version=None, android_version=None, android_device=None):
+    if telegram_version is None:
+        telegram_version = random.choice(versions)
+
+    if android_version is None:
+        android_version = _get_android_version(old_useragent)
+        if android_version is None:
+            android_version = random.choice(list(android_sdk_mapping.keys()))
+
+    device_perf = random.choice(list(device_performance.keys()))
+
+    if android_device is None:
+        android_device = _extract_device_name(old_useragent)
+        if android_device is None:
+            android_device = random.choice(device_performance[device_perf])
+
+    major_version = random.choice(list(existing_versions.keys()))
+    browser_version = random.choice(existing_versions[major_version])
+    sdk_version = android_sdk_mapping[android_version]
+
+    return _get_user_agent(browser_version, android_version, sdk_version, android_device, telegram_version,
+                           device_perf)
+
+
+def _get_user_agent(browser_version, android_version, sdk_version, android_device, telegram_version, device_perf):
+    return (
+        f"Mozilla/5.0 (Linux; Android {android_version}; {android_device}) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version} Mobile Safari/537.36 "
+        f"Telegram-Android/{telegram_version} ({android_device}; Android {android_version}; SDK {sdk_version}; "
+        f"{device_perf})"
+    )

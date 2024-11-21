@@ -30,7 +30,7 @@ from pyrogram.raw.functions.messages import RequestAppWebView
 from bot.config import settings
 
 from bot.utils import logger
-from .enum import Option
+from .option_enum import Option
 from ..exceptions.paint_exceptions import PaintError
 from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
@@ -350,7 +350,17 @@ class Tapper:
             _headers = copy.deepcopy(headers)
             _headers['User-Agent'] = self.user_agent
             try:
-                status_req = await http_client.get('https://notpx.app/api/v1/mining/status', headers=_headers)
+                url = 'https://notpx.app/api/v1/mining/status'
+                parsed_url = urlparse(url)
+                domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
+                cookie_jar = http_client.cookie_jar
+                cookies = cookie_jar.filter_cookies(domain)
+                if '__cf_bm' in cookies:
+                    cf_bm_value = cookies['__cf_bm'].value
+                    _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
+                else:
+                    logger.warning("__cf_bm cookie not found. Template loading might encounter issues.")
+                status_req = await http_client.get(url = url, headers=_headers)
                 status_req.raise_for_status()
                 status_json = await status_req.json()
                 self.status = status_json
@@ -469,10 +479,20 @@ class Tapper:
         max_retries = 5
         _headers = copy.deepcopy(headers)
         _headers['User-Agent'] = self.user_agent
+
         for attempt in range(max_retries):
 
             try:
                 url = 'https://notpx.app/api/v1/image/template/my'
+                parsed_url = urlparse(url)
+                domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
+                cookie_jar = http_client.cookie_jar
+                cookies = cookie_jar.filter_cookies(domain)
+                if '__cf_bm' in cookies:
+                    cf_bm_value = cookies['__cf_bm'].value
+                    _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
+                else:
+                    logger.warning("__cf_bm cookie not found. Might encounter issues.")
                 my_template_req = await http_client.get(url=url, headers=_headers)
                 my_template_req.raise_for_status()
                 my_template = await my_template_req.json()
@@ -534,6 +554,54 @@ class Tapper:
             logger.info(f"{self.session_name} | Successfully fetched {len(templates)} templates.")
         else:
             logger.error(f"{self.session_name} | Failed to fetch templates after {max_retries} attempts")
+        return templates if templates else None
+
+    async def get_tournament_templates(self, http_client: aiohttp.ClientSession, offset=16):
+        base_delay = 2
+        max_retries = 5
+        templates = []
+        _headers = copy.deepcopy(headers)
+        _headers['User-Agent'] = self.user_agent
+        for offset in range(0, offset, 16):
+            url = f"https://notpx.app/api/v1/tournament/template/randomList?limit={offset}"
+            for attempt in range(max_retries):
+                try:
+                    response = await http_client.get(url=url, headers=_headers)
+                    response.raise_for_status()
+                    page_templates = await response.json()
+                    templates.extend(page_templates["templates"])
+                    await asyncio.sleep(random.randint(1, 5))
+                    break
+
+                except aiohttp.ClientResponseError as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Attempt {attempt} failed to fetch tournament "
+                        f"templates (HTTP {error.status}) | Retrying in <y>{retry_delay}</y> seconds."
+                        f" Error: {error.message}"
+                    )
+                    await asyncio.sleep(retry_delay)
+
+                except aiohttp.ClientError as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Attempt {attempt} failed due to client error | "
+                        f"Retrying in <y>{retry_delay}</y> seconds. Error: {error}"
+                    )
+                    await asyncio.sleep(retry_delay)
+
+                except Exception as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Unexpected error on attempt {attempt} | "
+                        f"Retrying in <y>{retry_delay}</y> seconds. Error: {error}"
+                    )
+                    await asyncio.sleep(retry_delay)
+
+        if templates:
+            logger.info(f"{self.session_name} | Successfully fetched {len(templates)} tournament templates.")
+        else:
+            logger.error(f"{self.session_name} | Failed to fetch tournament templates after {max_retries} attempts")
         return templates if templates else None
 
     async def get_unpopular_template(self, http_client: aiohttp.ClientSession, templates):
@@ -606,6 +674,36 @@ class Tapper:
         logger.error(
             f"{self.session_name} | Failed to subscribe to template {template_id} after {max_retries} attempts")
 
+    async def subscribe_tournament_template(self, http_client: aiohttp.ClientSession, template_id):
+        base_delay = 2
+        max_retries = 5
+        url = f"https://notpx.app/api/v1/tournament/template/subscribe/{template_id}"
+        _headers = copy.deepcopy(headers_subscribe)
+        _headers['User-Agent'] = self.user_agent
+        for attempt in range(max_retries):
+            try:
+                template_req = await http_client.put(url=url, headers=_headers)
+                template_req.raise_for_status()
+                logger.info(f"{self.session_name} | Successfully subscribed to tournament template {template_id}")
+                return True
+
+            except aiohttp.ClientResponseError as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Subscription attempt {attempt} for template {template_id} failed | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
+                await asyncio.sleep(retry_delay)
+
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.error(
+                    f"{self.session_name} | Unexpected error when subscribing to tournament template {template_id} | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error}")
+                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
+        logger.error(
+            f"{self.session_name} | Failed to subscribe to tournament template {template_id} after {max_retries}"
+            f" attempts")
+
     async def download_image(self, url: str, http_client: ClientSession, cache: bool = False):
         download_folder = "app_data/images/"
         file_name = os.path.basename(url)
@@ -630,12 +728,11 @@ class Tapper:
                 domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
                 cookie_jar = http_client.cookie_jar
                 cookies = cookie_jar.filter_cookies(domain)
-                cf_bm_value = None
                 if '__cf_bm' in cookies:
                     cf_bm_value = cookies['__cf_bm'].value
+                    _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
                 else:
                     logger.warning("__cf_bm cookie not found. Template loading might encounter issues.")
-                _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
                 ssl_context = ssl.create_default_context(cafile=certifi.where())
                 async with http_client.get(url, headers=_headers, ssl=ssl_context) as response:
                     if response.status == 200:
@@ -1015,6 +1112,15 @@ class Tapper:
                 await self.subscribe_unpopular_template(http_client=http_client)
             await self.paint(http_client=http_client)
 
+    async def choose_and_subscribe_tournament_template(self, http_client):
+        templates = await self.get_tournament_templates(http_client=http_client)
+        chosen_template = random.choice(templates)
+        await self.subscribe_tournament_template(http_client=http_client, template_id=chosen_template["id"])
+
+    async def check_response(self, http_client):
+        response = await http_client.post("https://notpx.app/api/v1/offer/check")
+        response.raise_for_status()
+
     async def create_session(self, user_agent: str) -> tuple[ClientSession, TCPConnector]:
         _headers = {'User-Agent': user_agent}
         ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -1089,6 +1195,7 @@ class Tapper:
                 await self.update_status(http_client=http_client)
                 balance = await self.get_balance(http_client)
                 logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
+                await self.check_response(http_client=http_client)
 
                 tasks = []
 
@@ -1106,6 +1213,9 @@ class Tapper:
 
                 if settings.AUTO_TASK:
                     tasks.append(self.tasks(http_client=http_client))
+
+                if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
+                    tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))
 
                 random.seed(os.urandom(8))
                 random.shuffle(tasks)

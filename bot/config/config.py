@@ -22,11 +22,13 @@ class Settings(BaseSettings):
         "x:notcoin", "channel:notcoin",
         "channel:notpixel_channel"
     ]
+
     AUTO_DRAW: bool = True  # Enable automatic drawing
     JOIN_TG_CHANNELS: bool = True  # Join Telegram channels
     CLAIM_REWARD: bool = True  # Automatically claim rewards
     AUTO_UPGRADE: bool = True  # Automatically upgrade
     JOIN_SQUAD: bool = True  # Automatically join squad
+    SUBSCRIBE_TOURNAMENT_TEMPLATE: bool = True # Automatically subscribe to tournament templates
 
     # Referral settings
     REF_ID: str = 'f411905106'  # Referral ID
