@@ -1197,7 +1197,7 @@ class Tapper:
                 await self.update_status(http_client=http_client)
                 balance = await self.get_balance(http_client)
                 logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
-                await self.check_response(http_client=http_client)
+                #await self.check_response(http_client=http_client)
 
                 tasks = []
 
