@@ -16,11 +16,11 @@ class Settings(BaseSettings):
     START_DELAY: list[int] = [30, 60]  # Delay before starting
 
     # Task automation
-    AUTO_TASK: bool = False  # Automatic task execution
+    AUTO_TASK: bool = True  # Automatic task execution
     TASKS_TO_DO: list[str] = [  # Tasks to perform
         "paint20pixels", "x:notpixel",
         "x:notcoin", "channel:notcoin",
-        "channel:notpixel_channel"
+        "channel:notpixel_channel", "joinSquad",
     ]
 
     AUTO_DRAW: bool = True  # Enable automatic drawing
@@ -28,9 +28,10 @@ class Settings(BaseSettings):
     CLAIM_REWARD: bool = True  # Automatically claim rewards
     AUTO_UPGRADE: bool = True  # Automatically upgrade
     JOIN_SQUAD: bool = True  # Automatically join squad
-    SUBSCRIBE_TOURNAMENT_TEMPLATE: bool = True # Automatically subscribe to tournament templates
+    USE_SECRET_WORDS: bool = True  # Enable secret words usage
+    SECRET_WORDS: list[str] = []  # List of secret words
+    SUBSCRIBE_TOURNAMENT_TEMPLATE: bool = False  # Automatically subscribe to tournament templates
 
-    # Referral settings
     REF_ID: str = 'f411905106'  # Referral ID
 
     # Session and proxy handling

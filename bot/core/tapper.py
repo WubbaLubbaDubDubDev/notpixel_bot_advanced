@@ -418,8 +418,6 @@ class Tapper:
                                 await self.update_status(http_client)
                                 current_balance = await self.get_balance(http_client)
                                 logger.info(f"{self.session_name} | Current balance: {current_balance}")
-                            else:
-                                logger.warning(f"{self.session_name} | League requirements not met.")
                             await asyncio.sleep(delay=randint(10, 20))
                             break
             for task in settings.TASKS_TO_DO:
@@ -438,8 +436,9 @@ class Tapper:
                         if entity == 'channel':
                             if not settings.JOIN_TG_CHANNELS:
                                 continue
-                            await self.join_tg_channel(task_name)
-                            await asyncio.sleep(delay=3)
+                            else:
+                                await self.join_tg_channel(task_name)
+                                await asyncio.sleep(delay=3)
                     tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}')
                     tasks_status.raise_for_status()
                     tasks_status_json = await tasks_status.json()
@@ -599,7 +598,7 @@ class Tapper:
                     await asyncio.sleep(retry_delay)
 
         if templates:
-            logger.info(f"{self.session_name} | Successfully fetched {len(templates)} tournament templates.")
+            logger.info(f"{self.session_name} | Successfully fetched {len(templates)} tournament templates")
         else:
             logger.error(f"{self.session_name} | Failed to fetch tournament templates after {max_retries} attempts")
         return templates if templates else None
@@ -673,6 +672,53 @@ class Tapper:
                 await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
         logger.error(
             f"{self.session_name} | Failed to subscribe to template {template_id} after {max_retries} attempts")
+
+    async def use_secret_words(self, http_client: aiohttp.ClientSession):
+        base_delay = 2
+        max_retries = 5
+        secret_words = settings.SECRET_WORDS
+        await self.update_status(http_client=http_client)
+        quests = self.status["quests"]
+        if quests:
+            used_secret_words = [key.split("secretWord:")[1] for key in self.status["quests"]
+                               if key.startswith("secretWord:")]
+        else:
+            used_secret_words = []
+        unused_secret_words = [word for word in secret_words if word not in used_secret_words]
+        _headers = copy.deepcopy(headers)
+        _headers['User-Agent'] = self.user_agent
+        url = f"https://notpx.app/api/v1/mining/quest/check/secretWord"
+        parsed_url = urlparse(url)
+        domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
+        cookie_jar = http_client.cookie_jar
+        cookies = cookie_jar.filter_cookies(domain)
+        if '__cf_bm' in cookies:
+            cf_bm_value = cookies['__cf_bm'].value
+            _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
+        for secret_word in unused_secret_words:
+            payload = {"secret_word": secret_word}
+            for attempt in range(max_retries):
+                try:
+                    secret_req = await http_client.post(url=url, headers=_headers, json=payload)
+                    secret_req.raise_for_status()
+                    logger.info(f"{self.session_name} | Successfully used the secret word: '{secret_word}'")
+                    return True
+
+                except aiohttp.ClientResponseError as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Secret word usage attempt {attempt} for '{secret_word}' failed | "
+                        f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
+                    await asyncio.sleep(retry_delay)
+
+                except Exception as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.error(
+                        f"{self.session_name} | Unexpected error when using the secret word '{secret_word}' | "
+                        f"Sleep <y>{retry_delay}</y> sec | {error}")
+                    await asyncio.sleep(retry_delay)
+            logger.error(
+                f"{self.session_name} | Unable to use the secret word '{secret_word}' after {max_retries} attempts")
 
     async def subscribe_tournament_template(self, http_client: aiohttp.ClientSession, template_id):
         base_delay = 2
@@ -1012,7 +1058,7 @@ class Tapper:
                             logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}")
                     await asyncio.sleep(delay=randint(5, 10))
                 except Exception as error:
-                    logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}")
+                    logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}.")
                     await asyncio.sleep(delay=randint(10, 20))
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when upgrading: {error}")
@@ -1215,6 +1261,9 @@ class Tapper:
 
                 if settings.AUTO_TASK:
                     tasks.append(self.tasks(http_client=http_client))
+
+                if settings.USE_SECRET_WORDS:
+                    tasks.append(self.use_secret_words(http_client=http_client))
 
                 if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
                     tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))

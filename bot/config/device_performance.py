@@ -4,7 +4,7 @@ device_performance = {
         "SM-N986B", "SM-N981B", "SM-G980F", "SM-G980U", "SM-G991B", "Redmi Note 12 Pro", "NE2215",
         "POCO F5 Pro", "IN2023", "IN2010", "LE2123", "LE2117"
     ],
-    "MEDIUM": [
+    "AVERAGE": [
         "SM-G973F", "SM-G973U", "SM-G960F", "SM-G960U", "SM-G781B", "SM-A525F", "SM-N975F",
         "Redmi Note 11 Pro", "Redmi Note 11", "POCO F5", "Mi 12", "Mi 11", "Mi 10", "Mi 9",
         "OnePlus Nord", "CPH2423", "IV2201", "NE2210", "OCE-AN10"
