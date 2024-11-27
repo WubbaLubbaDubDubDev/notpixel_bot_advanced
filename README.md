@@ -43,7 +43,7 @@
 | **AUTO_UPGRADE**                | Automatically upgrade items or settings (default - True)                   |
 | **JOIN_SQUAD**                  | Automatically join squad (default - True)                                  |
 | **USE_SECRET_WORDS**            | Enable secret words usage (default - True)                                 |
-| **JOIN_SQUAD**                  | List of secret words                                                       |
+| **SECRET_WORDS**                | List of secret words                                                       |
 | **REF_ID**                      | Referral ID                                                                |
 | **IN_USE_SESSIONS_PATH**        | Path to the file where used sessions are stored                            |
 | **AUTO_BIND_PROXIES_FROM_FILE** | Automatically bind proxies from file (default - False)                     |
