@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
 from bot.utils.websocket_manager import WebsocketManager
-from aiohttp_proxy import ProxyConnector
+from aiohttp_socks import ProxyConnector
 
 from aiocfscrape import CloudflareScraper
-from aiohttp import ClientError, ClientSession, TCPConnector, WSMsgType
+from aiohttp import ClientError, ClientSession, TCPConnector
 from colorama import Style, init
 from urllib.parse import unquote, quote, urlparse
 from PIL import Image
@@ -103,30 +103,12 @@ class Tapper:
         self.user_agent = user_agent
 
     async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
-        if proxy:
-            proxy = Proxy.from_str(proxy)
-            proxy_dict = dict(
-                scheme=proxy.protocol,
-                hostname=proxy.host,
-                port=proxy.port,
-                username=proxy.login,
-                password=proxy.password
-            )
-        else:
-            proxy_dict = None
-
-        self.tg_client.proxy = proxy_dict
-
         max_attempts = 5
-
+        base_delay = 2
         for attempt in range(1, max_attempts + 1):
             try:
                 if not self.tg_client.is_connected:
-                    try:
-                        await self.tg_client.connect()
-                    except (Unauthorized, UserDeactivated, AuthKeyUnregistered):
-                        raise InvalidSession(self.session_name)
-
+                    await self.tg_client.connect()
                 peer = await self.tg_client.resolve_peer(bot_peer)
 
                 if bot_peer == self.main_bot_peer and not self.first_run:
@@ -193,9 +175,11 @@ class Tapper:
                 await asyncio.sleep(e.value)
 
             except Exception as error:
+                if (error is Unauthorized) or (error is UserDeactivated) or (error is AuthKeyUnregistered):
+                    raise error
                 logger.error(f"{self.session_name} | Attempt {attempt} failed: {error}")
                 if attempt < max_attempts:
-                    await asyncio.sleep(5)  # Затримка перед повторною спробою
+                    await asyncio.sleep(base_delay * (attempt + 1))
                 else:
                     logger.error(f"{self.session_name} | Authorization failed after {max_attempts} attempts.")
                     raise Exception(f"{self.session_name} | Authorization failed after {max_attempts} attempts.")
@@ -1173,7 +1157,7 @@ class Tapper:
         _headers = {'User-Agent': user_agent}
         ssl_context = ssl.create_default_context(cafile=certifi.where())
         if self.proxy:
-            connector = ProxyConnector(ssl=ssl_context).from_url(self.proxy)
+            connector = ProxyConnector(ssl_context=ssl_context).from_url(self.proxy)
         else:
             connector = TCPConnector(ssl=ssl_context)
         http_client = CloudflareScraper(headers=_headers, connector=connector)

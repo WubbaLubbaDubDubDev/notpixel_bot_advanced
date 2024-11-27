@@ -1,5 +1,3 @@
-import random
-
 from better_proxy import Proxy
 from pyrogram import Client
 from bot.config import settings, telegram_versions
@@ -78,7 +76,6 @@ async def get_tg_client(session_name: str,
         "sleep_threshold": 123
     }
 
-    # Додаємо опціональні параметри, якщо вони задані
     if app_version:
         client_params["app_version"] = app_version
     if android_device:
@@ -88,7 +85,6 @@ async def get_tg_client(session_name: str,
     if proxy_dict:
         client_params["proxy"] = proxy_dict
 
-    # Створення клієнта з динамічними параметрами
     tg_client = Client(**client_params)
 
     return tg_client
