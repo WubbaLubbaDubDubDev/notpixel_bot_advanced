@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     JOIN_SQUAD: bool = True  # Automatically join squad
     USE_SECRET_WORDS: bool = True  # Enable secret words usage
     SECRET_WORDS: list[str] = []  # List of secret words
+    WATCH_ADS: bool = True  # Enable automatically watching ads when available
     SUBSCRIBE_TOURNAMENT_TEMPLATE: bool = False  # Automatically subscribe to tournament templates
 
     REF_ID: str = 'f411905106'  # Referral ID

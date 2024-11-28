@@ -15,7 +15,7 @@ from aiohttp_socks import ProxyConnector
 from aiocfscrape import CloudflareScraper
 from aiohttp import ClientError, ClientSession, TCPConnector
 from colorama import Style, init
-from urllib.parse import unquote, quote, urlparse
+from urllib.parse import unquote, quote, urlparse, urlencode
 from PIL import Image
 from yarl import URL
 
@@ -88,6 +88,7 @@ class Tapper:
         self.websocket_token = None
         self.auth_token = None
         self.init_data = None
+        self.chat_instance = None
         self.user_info = None
         self.tg_client = tg_client
         self.first_run = first_run
@@ -146,7 +147,7 @@ class Tapper:
                     'signature': re.findall(r'signature=([^&]+)', tg_web_data)[0],
                     'user': quote(re.findall(r'user=([^&]+)', tg_web_data)[0]),
                 }
-
+                self.chat_instance = init_data['chat_instance']
                 if start_param:
                     start_param = start_param[0]
                     init_data['start_param'] = start_param
@@ -286,7 +287,7 @@ class Tapper:
             return await self.login(http_client, attempt + 1)  # Call the function again with incremented attempt count
 
     async def check_proxy(self, http_client: aiohttp.ClientSession) -> None:
-        timeout = aiohttp.ClientTimeout(total=5)
+        timeout = aiohttp.ClientTimeout(total=10)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as client_without_proxy:
                 real_response = await client_without_proxy.get(
@@ -986,7 +987,7 @@ class Tapper:
                         opposite_color = f"\033[38;2;{opposite_r};{opposite_g};{opposite_b}m"
                         logger.success(
                             f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
-                            f"{Style.RESET_ALL}, reward: <e>{delta}</e>"
+                            f"{Style.RESET_ALL}| Reward: <e>{delta}</e>"
                         )
                         if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
                             if not settings.RANDOM_PIXEL_MODE:
@@ -1038,8 +1039,8 @@ class Tapper:
                                 f'https://notpx.app/api/v1/mining/boost/check/{name}')
                             upgrade_req.raise_for_status()
                             logger.success(f"{self.session_name} | Upgraded boost: {name}")
-                        else:
-                            logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}")
+                        #else:
+                        #    logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}")
                     await asyncio.sleep(delay=randint(5, 10))
                 except Exception as error:
                     logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}.")
@@ -1115,6 +1116,73 @@ class Tapper:
                     self.template = current_template
             elif settings.USE_UNPOPULAR_TEMPLATE:
                 await self.subscribe_unpopular_template(http_client=http_client)
+
+
+    async def watch_ads(self, http_client):
+        headers_ = {
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Host': 'api.adsgram.ai',
+            'Origin': 'https://app.notpx.app',
+            'Pragma': 'no-cache',
+            'Referer': 'https://app.notpx.app/',
+            'Sec-CH-UA': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
+            'Sec-CH-UA-Mobile': '?1',
+            'Sec-CH-UA-Platform': '"Android"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
+                          'Mobile Safari/537.36 Telegram-Android/11.4.3 (Google Pixel 6; Android 15; SDK 35; HIGH)',
+            'X-Requested-With': 'org.telegram.messenger.web'
+        }
+        try:
+            params = {
+                "blockId": 4853,
+                "tg_id": self.user_info["id"],
+                "tg_platform": "android",
+                "platform": "Linux aarch64",
+                "language": self.tg_client.lang_code,
+                "chat_type": "sender",
+                "chat_instance": int(self.chat_instance),
+                "top_domain": "app.notpx.app",
+                "connectiontype": 1
+            }
+            #Trackings
+            while True:
+                base_url = "https://api.adsgram.ai/adv"
+                full_url = f"{base_url}?{urlencode(params)}"
+                adv_response = await http_client.get(full_url, headers=headers_)
+                adv_response.raise_for_status()
+                adv_data = await adv_response.json()
+                if adv_data:
+                    logger.info(f"{self.session_name} | A new advertisement has been found for viewing! | Title: {adv_data['banner']['bannerAssets'][1]['value']} | Type: {adv_data['bannerType']}")
+                    previous_balance = await self.get_balance(http_client=http_client)
+                    render_url = adv_data['banner']['trackings'][0]['value']
+                    render_response = await http_client.get(render_url, headers=headers_)
+                    render_response.raise_for_status()
+                    await asyncio.sleep(random.randint(1, 5))
+                    show_url = adv_data['banner']['trackings'][1]['value']
+                    show_response = await http_client.get(show_url, headers=headers_)
+                    show_response.raise_for_status()
+                    await asyncio.sleep(random.randint(10, 15))
+                    reward_url = adv_data['banner']['trackings'][4]['value']
+                    reward_response = await http_client.get(reward_url, headers=headers_)
+                    reward_response.raise_for_status()
+                    await asyncio.sleep(random.randint(1, 5))
+                    await self.update_status(http_client=http_client)
+                    current_balance = await self.get_balance(http_client=http_client)
+                    delta = round(current_balance - previous_balance, 1)
+                    logger.success(f"{self.session_name} | Ad view completed successfully. | Reward: <e>{delta}</e>")
+                    await asyncio.sleep(random.randint(30, 35))
+                else:
+                    logger.info(f"{self.session_name} | No ads are available for viewing at the moment.")
+                    break
+        except Exception as e:
+            logger.error(e)
 
     async def join_squad_if_not_in(self, user_agent):
         if not await self.in_squad(self.user_info):
@@ -1230,7 +1298,6 @@ class Tapper:
                 #await self.check_response(http_client=http_client)
 
                 tasks = []
-
                 if settings.AUTO_DRAW:
                     tasks.append(self.subscribe_and_paint(http_client=http_client))
 
@@ -1251,6 +1318,9 @@ class Tapper:
 
                 if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
                     tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))
+
+                if settings.WATCH_ADS:
+                    tasks.append(self.watch_ads(http_client=http_client))
 
                 random.seed(os.urandom(8))
                 random.shuffle(tasks)
