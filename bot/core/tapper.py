@@ -36,7 +36,7 @@ from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions.proxy_exceptions import *
 from bot.exceptions import InvalidSession
-from .headers import headers_squads, headers_image, headers_subscribe, headers, headers_check
+from .headers import headers_squads, headers_image, headers_subscribe, headers, headers_check, headers_advertisement
 from random import randint, choices
 import certifi
 
@@ -1119,26 +1119,8 @@ class Tapper:
 
 
     async def watch_ads(self, http_client):
-        headers_ = {
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Host': 'api.adsgram.ai',
-            'Origin': 'https://app.notpx.app',
-            'Pragma': 'no-cache',
-            'Referer': 'https://app.notpx.app/',
-            'Sec-CH-UA': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
-            'Sec-CH-UA-Mobile': '?1',
-            'Sec-CH-UA-Platform': '"Android"',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.107 '
-                          'Mobile Safari/537.36 Telegram-Android/11.4.3 (Google Pixel 6; Android 15; SDK 35; HIGH)',
-            'X-Requested-With': 'org.telegram.messenger.web'
-        }
+        _headers = copy.deepcopy(headers_advertisement)
+        _headers['User-Agent'] = self.user_agent
         try:
             params = {
                 "blockId": 4853,
@@ -1155,22 +1137,22 @@ class Tapper:
             while True:
                 base_url = "https://api.adsgram.ai/adv"
                 full_url = f"{base_url}?{urlencode(params)}"
-                adv_response = await http_client.get(full_url, headers=headers_)
+                adv_response = await http_client.get(full_url, headers=_headers)
                 adv_response.raise_for_status()
                 adv_data = await adv_response.json()
                 if adv_data:
                     logger.info(f"{self.session_name} | A new advertisement has been found for viewing! | Title: {adv_data['banner']['bannerAssets'][1]['value']} | Type: {adv_data['bannerType']}")
                     previous_balance = await self.get_balance(http_client=http_client)
                     render_url = adv_data['banner']['trackings'][0]['value']
-                    render_response = await http_client.get(render_url, headers=headers_)
+                    render_response = await http_client.get(render_url, headers=_headers)
                     render_response.raise_for_status()
                     await asyncio.sleep(random.randint(1, 5))
                     show_url = adv_data['banner']['trackings'][1]['value']
-                    show_response = await http_client.get(show_url, headers=headers_)
+                    show_response = await http_client.get(show_url, headers=_headers)
                     show_response.raise_for_status()
                     await asyncio.sleep(random.randint(10, 15))
                     reward_url = adv_data['banner']['trackings'][4]['value']
-                    reward_response = await http_client.get(reward_url, headers=headers_)
+                    reward_response = await http_client.get(reward_url, headers=_headers)
                     reward_response.raise_for_status()
                     await asyncio.sleep(random.randint(1, 5))
                     await self.update_status(http_client=http_client)
