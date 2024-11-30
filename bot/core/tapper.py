@@ -671,7 +671,7 @@ class Tapper:
                     response = await http_client.get(url=url, headers=_headers)
                     response.raise_for_status()
                     page_templates = await response.json()
-                    templates.extend(page_templates["templates"])
+                    templates.extend(page_templates["list"])
                     await asyncio.sleep(random.randint(1, 5))
                     break
 
@@ -990,19 +990,22 @@ class Tapper:
                             self.memory_cache.set(url, image)
                         return image
 
-                    elif response.status == 401:
-                        # Handle Unauthorized (401) error by re-authenticating
-                        logger.warning(f"{self.session_name} | 401 Unauthorized when downloading image from {url}."
-                                       f" Reauthorizing...")
-                        await self.authorise(http_client=http_client)  # Assuming this method handles re-authentication
-                        continue  # Retry the operation after re-authenticating
-                    if 400 <= response.status < 500:
-                        logger.error(
-                            f"{self.session_name} | 4xx Error during downloading image from {url}"
-                            f" No retries will be attempted."
+            except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized during image download. Reauthorizing..."
                         )
-                        raise Exception(f"Client error {response.status} for URL: {url}")
+                    await self.authorise(http_client=http_client)
+                    continue
 
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during image download: {error}. No retries will be "
+                        f"attempted."
+                    )
+                    raise error
+
+                else:
                     delay = base_delay * (attempt + 1)
                     logger.warning(
                         f"{self.session_name} | Attempt {attempt + 1} to download image failed | "
@@ -1125,6 +1128,10 @@ class Tapper:
                         start_x=int(self.template['x']),
                         start_y=int(self.template['y'])
                     )
+                    if not diffs:
+                        logger.info(f"{self.session_name} | The image is fully painted. Retrying...")
+                        await asyncio.sleep(random.randint(1, 10))
+                        return await self.prepare_pixel_info(http_client)
                     x, y, color = diffs
                     pixel_id = get_pixel_id(x, y)
 
@@ -1166,12 +1173,13 @@ class Tapper:
         return (x, y, color, pixel_id), option
 
     async def paint(self, http_client: aiohttp.ClientSession):
+        previous_repaints = self.status['repaintsTotal']
         logger.info(f"{self.session_name} | Painting started")
         try:
             await self.update_status(http_client=http_client)
             charges = self.status['charges']
 
-            for _ in range(charges):
+            for charge in range(charges):
                 max_retries = 5
                 base_delay = 2
 
@@ -1207,7 +1215,6 @@ class Tapper:
                         current_balance = round(request_data["balance"], 1)
                         if current_balance:
                             self.status['userBalance'] = current_balance
-
                         user_reward = None
                         if option == Option.TOURNAMENT_TEMPLATE:
                             user_reward = request_data['reward_user']
@@ -1231,6 +1238,7 @@ class Tapper:
                             f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}"
                             f"{color}"
                             f"{Style.RESET_ALL}| Reward: <e>{delta}</e>"
+                            f"| Charges: <e>{charges - charge}</e>"
                         )
                         if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
                             if not settings.RANDOM_PIXEL_MODE:
@@ -1246,7 +1254,8 @@ class Tapper:
                             f"{self.session_name} | Paint attempt {attempt + 1} failed. | Retrying in "
                             f"<y>{retry_delay}</y> sec | {error}"
                         )
-                        await self.choose_and_subscribe_template(http_client=http_client)
+                        if not settings.DRAW_TOURNAMENT_TEMPLATE:
+                            await self.choose_and_subscribe_template(http_client=http_client)
                         await self.update_status(http_client)
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
@@ -1261,7 +1270,8 @@ class Tapper:
         finally:
             await self.update_status(http_client)
             status = self.status
-            logger.info(f"{self.session_name} | Painting completed | Total repaints: <y>{status['repaintsTotal']}</y>")
+            logger.info(f"{self.session_name} | Painting completed | Total repaints: <y>{status['repaintsTotal']}"
+                        f"</y> <e>(+{status['repaintsTotal'] - previous_repaints})</e>")
 
     # Planning to draw each pixel in separate coroutines to interleave drawing with other actions,
     # rather than drawing each pixel sequentially.
@@ -1487,24 +1497,85 @@ class Tapper:
                 await self.subscribe_unpopular_template(http_client=http_client)
             await self.paint(http_client=http_client)
 
+    async def get_my_tournament_template(self, http_client):
+        base_delay = 2
+        max_retries = 5
+        _headers = copy.deepcopy(headers)
+        _headers['User-Agent'] = self.user_agent
+
+        for attempt in range(max_retries):
+            try:
+                url = 'https://notpx.app/api/v1/tournament/user/results'
+                parsed_url = urlparse(url)
+                domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
+                cookie_jar = http_client.cookie_jar
+                cookies = cookie_jar.filter_cookies(domain)
+
+                if '__cf_bm' in cookies:
+                    cf_bm_value = cookies['__cf_bm'].value
+                    _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
+                else:
+                    logger.warning("__cf_bm cookie not found. Might encounter issues.")
+
+                my_template_req = await http_client.get(url=url, headers=_headers)
+                my_template_req.raise_for_status()
+                template_data = await my_template_req.json()
+                my_template = template_data["rounds"][-1]["template"]
+                return my_template
+
+            except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized when fetching user template. Reauthorizing..."
+                    )
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during fetching user template: {error}. No retries will be "
+                        f"attempted."
+                    )
+                    raise error
+
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | HTTP Error when getting template (Attempt {attempt + 1}/{max_retries}). "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}"
+                )
+                await asyncio.sleep(retry_delay)
+
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Unexpected error when getting template (Attempt {attempt + 1}/{max_retries}). "
+                    f"Sleep <y>{retry_delay}</y> sec | {error}"
+                )
+                await asyncio.sleep(retry_delay)
+
+        logger.error(f"{self.session_name} | Failed to get template after {max_retries} attempts")
+        return None
+
     async def choose_and_subscribe_tournament_template(self, http_client):
-    #    templates = await self.get_tournament_templates(http_client=http_client)
-    #    chosen_template = random.choice(templates)
-    #    subscribing_successful = await self.subscribe_tournament_template(http_client=http_client,
-    #                                                                      template_id=chosen_template["id"])
-    #    if subscribing_successful:
-    #        if self.template:
-    #            if self.template["id"] != chosen_template["id"]:
-    #                self.template = chosen_template
-    #            else:
-    #                logger.info(f"{self.session_name} | Already subscribed to template ID: "
-    #                            f"{chosen_template['id']}")
-    #        else:
-    #            self.template = chosen_template
-    #    else:
-    #        logger.error(f"Unable to subscribe to tournament template: {chosen_template['id']}")
-        current_template = await self.get_my_template(http_client=http_client)
-        self.template = current_template
+        current_template = await self.get_my_tournament_template(http_client=http_client)
+        if not current_template:
+            templates = await self.get_tournament_templates(http_client=http_client)
+            chosen_template = random.choice(templates)
+            subscribing_successful = await self.subscribe_tournament_template(http_client=http_client,
+                                                                              template_id=chosen_template["id"])
+            if subscribing_successful:
+                if self.template:
+                    if self.template["id"] != chosen_template["id"]:
+                        self.template = chosen_template
+                    else:
+                        logger.info(f"{self.session_name} | Already subscribed to template ID: "
+                                    f"{chosen_template['id']}")
+                else:
+                    self.template = chosen_template
+            else:
+                logger.error(f"Unable to subscribe to tournament template: {chosen_template['id']}")
+        else:
+            self.template = current_template
 
     async def check_response(self, http_client):
         headers_ = copy.deepcopy(headers_check)

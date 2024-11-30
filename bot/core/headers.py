@@ -38,6 +38,7 @@ headers_image = {
     'Accept-Language': 'en,en-GB;q=0.9,uk-UA;q=0.8,uk;q=0.7,ru-UA;q=0.6,ru;q=0.5,en-US;q=0.4',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache',
+    'Priority': 'u=1, i',
     'Referer': 'https://app.notpx.app/',
     'Sec-CH-UA': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
     'Sec-CH-UA-Mobile': '?1',
