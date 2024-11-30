@@ -1520,6 +1520,8 @@ class Tapper:
                 my_template_req = await http_client.get(url=url, headers=_headers)
                 my_template_req.raise_for_status()
                 template_data = await my_template_req.json()
+                if template_data['rounds'] == []:
+                    return None
                 my_template = template_data["rounds"][-1]["template"]
                 return my_template
 
