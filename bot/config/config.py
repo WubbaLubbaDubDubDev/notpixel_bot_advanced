@@ -54,14 +54,15 @@ class Settings(BaseSettings):
         "#493AC1", "#811E9F", "#a00357", "#6D482F", "#000000"]
 
     # Additional settings
-    DAW_MAIN_TEMPLATE: bool = True  # Enable drawing using the main template
-    USE_UNPOPULAR_TEMPLATE: bool = True  # Use an unpopular template
+    DAW_MAIN_TEMPLATE: bool = False  # Enable drawing using the main template
+    USE_UNPOPULAR_TEMPLATE: bool = False  # Use an unpopular template
     RANDOM_PIXEL_MODE: bool = False
     USE_SPECIFIED_TEMPLATES: bool = False
     SPECIFIED_TEMPLATES_ID_LIST: list[int] = ["305094295", "347622105", "472564792", "885255742",
                                               "1075675229", "1166863582", "1506332503", "1750502312",
                                               "6242019785", "6394700339", "6419192074", "6488960520",
                                               "6624523270", "7053283732", "8058462435"]
+    DRAW_TOURNAMENT_TEMPLATE: bool = True
 
 
 settings = Settings()

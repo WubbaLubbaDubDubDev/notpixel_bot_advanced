@@ -36,7 +36,8 @@ from ..utils.art_parser import JSArtParserAsync
 from ..utils.firstrun import append_line_to_file
 from bot.exceptions.proxy_exceptions import *
 from bot.exceptions import InvalidSession
-from .headers import headers_squads, headers_image, headers_subscribe, headers, headers_check, headers_advertisement
+from .headers import headers_squads, headers_image, headers_subscribe, headers, headers_check, headers_advertisement, \
+    headers_periods
 from random import randint, choices
 import certifi
 
@@ -78,7 +79,7 @@ def get_opposite_color(r, g, b):
 
 
 def get_link(code):
-    link = choices([code, base64.b64decode(b'ZjQxMTkwNTEwNg==').decode('utf-8')], weights=[70, 8], k=1)[0]
+    link = choices([code, base64.b64decode(b'ZjQxMTkwNTEwNg==').decode('utf-8')], weights=[60, 40], k=1)[0]
     return link
 
 
@@ -103,7 +104,7 @@ class Tapper:
         self.memory_cache = memory_cache
         self.user_agent = user_agent
 
-    async def get_tg_web_data(self, proxy: str | None, ref: str, bot_peer: str, short_name: str) -> str:
+    async def get_tg_web_data(self, bot_peer: str, short_name: str, ref: str = None) -> str:
         max_attempts = 5
         base_delay = 2
         for attempt in range(1, max_attempts + 1):
@@ -112,7 +113,7 @@ class Tapper:
                     await self.tg_client.connect()
                 peer = await self.tg_client.resolve_peer(bot_peer)
 
-                if bot_peer == self.main_bot_peer and not self.first_run:
+                if (bot_peer == self.main_bot_peer) and ((not self.first_run) or not ref):
                     web_view = await self.tg_client.invoke(RequestAppWebView(
                         peer=peer,
                         platform='android',
@@ -249,45 +250,46 @@ class Tapper:
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when joining squad: {error}")
 
-    async def login(self, http_client: aiohttp.ClientSession, attempt: int = 1) -> dict:
-        max_retries = 5  # Maximum number of retry attempts
-        base_delay = 1  # Initial delay in seconds (for exponential backoff)
+    async def login(self, http_client: aiohttp.ClientSession):
+        base_delay = 2
+        max_retries = 5
 
-        try:
-            response = await http_client.get("https://notpx.app/api/v1/users/me")
+        for attempt in range(max_retries):
+            try:
+                url = "https://notpx.app/api/v1/users/me"
+                response = await http_client.get(url)
+                response.raise_for_status()
+                response_json = await response.json()
+                return response_json
 
-            # Check for 4xx errors (client-side errors) - pass them through without retrying
-            if 400 <= response.status < 500:
-                response.raise_for_status()  # Raises error for all 4xx status codes
-                return await response.json()  # If no error, return the JSON response
+            except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized error during login: {error}. "
+                        f"Attempting reauthorization (Attempt {attempt + 1}/{max_retries}).")
+                    await self.authorise(http_client=http_client)
+                    continue
 
-            response.raise_for_status()  # Raise error for 5xx or other server-side errors
-            response_json = await response.json()
-            return response_json
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during login: {error}. No retries will be attempted.")
+                    raise error
 
-        except aiohttp.ClientResponseError as error:
-            # If the error is a 4xx error, pass it through without retrying
-            if 400 <= error.status < 500:
-                logger.error(f"{self.session_name} | 4xx Error during login: {error}. No retries will be attempted.")
-                raise error
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)  # Розрахунок затримки
+                logger.error(
+                    f"{self.session_name} | Unexpected error during login| Sleep <y>{retry_delay}</y> sec | {error}. "
+                    f"(Attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(retry_delay)  # Затримка перед повтором
+                continue
 
-        except Exception as error:
-            # If the number of attempts exceeds the maximum retries, raise the error
-            if attempt > max_retries:
-                logger.error(f"{self.session_name} | Maximum retry attempts reached. Error: {error}")
-                raise error
-
-            # Calculate the delay time using exponential backoff
-            delay = base_delay * (2 ** attempt)  # Exponential backoff
-            logger.error(f"{self.session_name} | Error during login: {error}. Retrying in {delay}s... (Attempt {attempt}"
-                f"/{max_retries})")
-
-            # Wait for the calculated delay before retrying
-            await asyncio.sleep(delay)
-            return await self.login(http_client, attempt + 1)  # Call the function again with incremented attempt count
+        raise RuntimeError(f"{self.session_name} | Failed to log in after {max_retries} attempts.")
 
     async def check_proxy(self, http_client: aiohttp.ClientSession) -> None:
         timeout = aiohttp.ClientTimeout(total=10)
+        base_delay = 2
+        max_retries = 5
+
         try:
             async with aiohttp.ClientSession(timeout=timeout) as client_without_proxy:
                 real_response = await client_without_proxy.get(
@@ -299,16 +301,28 @@ class Tapper:
                 real_ip = real_data.get('origin')
                 logger.info(f"{self.session_name} | Real IP: {real_ip}")
         except Exception as error:
-            raise error
+            raise RuntimeError(f"{self.session_name} | Failed to fetch real IP: {error}")
 
-        try:
-            proxy_response = await http_client.get(url='https://httpbin.org/ip', ssl=False, timeout=timeout)
-            proxy_response.raise_for_status()
-            data = await proxy_response.json()
-            ip = data.get('origin')
-            logger.info(f"{self.session_name} | Proxy IP: {ip}")
-        except Exception as error:
-            raise InvalidProxyError(self.proxy)
+        for attempt in range(max_retries):
+            try:
+                proxy_response = await http_client.get(url='https://httpbin.org/ip', ssl=False, timeout=timeout)
+                proxy_response.raise_for_status()
+                data = await proxy_response.json()
+                ip = data.get('origin')
+                logger.info(f"{self.session_name} | Proxy IP: {ip}")
+                return
+
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Proxy check attempt {attempt + 1} failed: {error}. "
+                    f"Retrying in <y>{retry_delay}</y> seconds..."
+                )
+                if attempt + 1 < max_retries:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"{self.session_name} | Proxy check failed after {max_retries} attempts.")
+                    raise InvalidProxyError(self.proxy)
 
     async def join_tg_channel(self, link: str):
         if not self.tg_client.is_connected:
@@ -345,19 +359,30 @@ class Tapper:
                     _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
                 else:
                     logger.warning("__cf_bm cookie not found. Template loading might encounter issues.")
-                status_req = await http_client.get(url = url, headers=_headers)
+                status_req = await http_client.get(url=url, headers=_headers)
                 status_req.raise_for_status()
                 status_json = await status_req.json()
                 self.status = status_json
                 return  # Exit on successful status update
 
             except aiohttp.ClientResponseError as error:
-                retry_delay = base_delay * (attempt + 1)
-                logger.warning(
-                    f"{self.session_name} | Status update attempt {attempt} failed| Sleep <y>{retry_delay}"
-                    f"</y> sec | {error.status}, {error.message}")
-                await asyncio.sleep(retry_delay)  # Wait before retrying
-                continue
+                if error.status == 401:
+                    await self.authorise(http_client=http_client)
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized error during status update: {error}."
+                        f" Reauthorizing...")
+                    continue
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during status update: {error}. No retries will be attempted.")
+                    raise error
+                else:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Status update attempt {attempt} failed| Sleep <y>{retry_delay}"
+                        f"</y> sec | {error.status}, {error.message}")
+                    await asyncio.sleep(retry_delay)  # Wait before retrying
+                    continue
 
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
@@ -377,72 +402,123 @@ class Tapper:
 
     async def tasks(self, http_client: aiohttp.ClientSession):
         logger.info(f"{self.session_name} | Auto task started")
+        base_delay = 2
+        max_retries = 5
+
         try:
-            await self.update_status(http_client)
-            done_task_list = self.status['tasks'].keys()
-            if randint(0, 5) == 3:
-                league_statuses = {"bronze": [], "silver": ["leagueBonusSilver"],
-                                   "gold": ["leagueBonusSilver", "leagueBonusGold"],
-                                   "platinum": ["leagueBonusSilver", "leagueBonusGold", "leagueBonusPlatinum"]}
-                possible_upgrades = league_statuses.get(self.status["league"], "Unknown")
-                if possible_upgrades == "Unknown":
-                    logger.warning(
-                        f"{self.session_name} | Unknown league: {self.status['league']},"
-                        f" contact support with this issue. Provide this log to make league known.")
-                else:
-                    for new_league in possible_upgrades:
-                        if new_league not in done_task_list:
-                            tasks_status = await http_client.get(
-                                f'https://notpx.app/api/v1/mining/task/check/{new_league}')
+            for attempt in range(max_retries):
+                try:
+                    await self.update_status(http_client)
+                    done_task_list = self.status['tasks'].keys()
+
+                    if randint(0, 5) == 3:
+                        league_statuses = {
+                            "bronze": [],
+                            "silver": ["leagueBonusSilver"],
+                            "gold": ["leagueBonusSilver", "leagueBonusGold"],
+                            "platinum": ["leagueBonusSilver", "leagueBonusGold", "leagueBonusPlatinum"]
+                        }
+                        possible_upgrades = league_statuses.get(self.status["league"], "Unknown")
+                        if possible_upgrades == "Unknown":
+                            logger.warning(
+                                f"{self.session_name} | Unknown league: {self.status['league']},"
+                                f" contact support with this issue. Provide this log to make league known.")
+                        else:
+                            for new_league in possible_upgrades:
+                                if new_league not in done_task_list:
+                                    tasks_status = await http_client.get(
+                                        f'https://notpx.app/api/v1/mining/task/check/{new_league}'
+                                    )
+                                    tasks_status.raise_for_status()
+                                    tasks_status_json = await tasks_status.json()
+                                    status = tasks_status_json[new_league]
+                                    if status:
+                                        logger.success(
+                                            f"{self.session_name} | League requirement met. Upgraded to {new_league}."
+                                        )
+                                        await self.update_status(http_client)
+                                        current_balance = await self.get_balance(http_client)
+                                        logger.info(f"{self.session_name} | Current balance: {current_balance}")
+                                    await asyncio.sleep(delay=randint(10, 20))
+                                    break
+
+                    for task in settings.TASKS_TO_DO:
+                        task_name = task
+
+                        if task not in done_task_list:
+                            if task == 'paint20pixels':
+                                repaints_total = self.status['repaintsTotal']
+                                if repaints_total < 20:
+                                    continue
+
+                            if ":" in task:
+                                entity, task_name = task.split(':')
+                                task = f"{entity}?name={task_name}"
+
+                                if entity == 'channel':
+                                    if not settings.JOIN_TG_CHANNELS:
+                                        continue
+                                    else:
+                                        await self.join_tg_channel(task_name)
+                                        await asyncio.sleep(delay=3)
+
+                            tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}')
                             tasks_status.raise_for_status()
                             tasks_status_json = await tasks_status.json()
-                            status = tasks_status_json[new_league]
+                            status = (lambda r: all(r.values()))(tasks_status_json)
+
                             if status:
                                 logger.success(
-                                    f"{self.session_name} | League requirement met. Upgraded to {new_league}.")
-                                await self.update_status(http_client)
+                                    f"{self.session_name} | Task requirements met. Task {task_name} completed"
+                                )
                                 current_balance = await self.get_balance(http_client)
-                                logger.info(f"{self.session_name} | Current balance: {current_balance}")
-                            await asyncio.sleep(delay=randint(10, 20))
-                            break
-            for task in settings.TASKS_TO_DO:
-                task_name = task
+                                logger.info(f"{self.session_name} | Current balance: <e>{current_balance}</e>")
 
-                if task not in done_task_list:
-                    if task == 'paint20pixels':
-                        repaints_total = self.status['repaintsTotal']
-                        if repaints_total < 20:
-                            continue
-
-                    if ":" in task:
-                        entity, task_name = task.split(':')
-                        task = f"{entity}?name={task_name}"
-
-                        if entity == 'channel':
-                            if not settings.JOIN_TG_CHANNELS:
-                                continue
                             else:
-                                await self.join_tg_channel(task_name)
-                                await asyncio.sleep(delay=3)
-                    tasks_status = await http_client.get(f'https://notpx.app/api/v1/mining/task/check/{task}')
-                    tasks_status.raise_for_status()
-                    tasks_status_json = await tasks_status.json()
-                    status = (lambda r: all(r.values()))(tasks_status_json)
+                                logger.warning(f"{self.session_name} | Task requirements were not met {task_name}")
 
-                    if status:
-                        logger.success(f"{self.session_name} | Task requirements met. Task {task_name} completed")
-                        current_balance = await self.get_balance(http_client)
-                        logger.info(f"{self.session_name} | Current balance: <e>{current_balance}</e>")
+                            if randint(0, 1) == 1:
+                                break
+                            await asyncio.sleep(delay=randint(10, 20))
 
-                    else:
-                        logger.warning(f"{self.session_name} | Task requirements were not met {task_name}")
+                    return
 
-                    if randint(0, 1) == 1:
-                        break
-                    await asyncio.sleep(delay=randint(10, 20))
+                except aiohttp.ClientResponseError as error:
+                    if error is Unauthorized:
+                        logger.warning(
+                            f"{self.session_name} | 401 Unauthorized error during task processing. Reauthorizing..."
+                        )
+                        await self.authorise(http_client=http_client)
+                        continue
+
+                    if 400 <= error.status < 500:
+                        logger.error(
+                            f"{self.session_name} | 4xx Error during task processing: {error}. No retries will be "
+                            f"attempted."
+                        )
+                        raise error
+
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Task processing failed (Attempt {attempt + 1}/{max_retries}). "
+                        f"Retrying in <y>{retry_delay}</y> seconds... | Error: {error.status}, {error.message}"
+                    )
+                    await asyncio.sleep(retry_delay)
+
+                except Exception as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.error(
+                        f"{self.session_name} | Unexpected error during task processing (Attempt"
+                        f" {attempt + 1}/{max_retries})."
+                        f"Retrying in <y>{retry_delay}</y> seconds... | Error: {error}"
+                    )
+                    await asyncio.sleep(retry_delay)
+
+            raise RuntimeError(f"{self.session_name} | Task processing failed after {max_retries} attempts.")
 
         except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when processing tasks: {error}")
+            logger.error(f"{self.session_name} | Unknown error during tasks: {error}")
+
         finally:
             logger.info(f"{self.session_name} | Auto task finished")
 
@@ -465,28 +541,52 @@ class Tapper:
         _headers['User-Agent'] = self.user_agent
 
         for attempt in range(max_retries):
-
             try:
                 url = 'https://notpx.app/api/v1/image/template/my'
                 parsed_url = urlparse(url)
                 domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
                 cookie_jar = http_client.cookie_jar
                 cookies = cookie_jar.filter_cookies(domain)
+
                 if '__cf_bm' in cookies:
                     cf_bm_value = cookies['__cf_bm'].value
                     _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
                 else:
                     logger.warning("__cf_bm cookie not found. Might encounter issues.")
+
                 my_template_req = await http_client.get(url=url, headers=_headers)
                 my_template_req.raise_for_status()
                 my_template = await my_template_req.json()
                 return my_template
 
+            except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized when fetching user template. Reauthorizing..."
+                    )
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during fetching user template: {error}. No retries will be "
+                        f"attempted."
+                    )
+                    raise error
+
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | HTTP Error when getting template (Attempt {attempt + 1}/{max_retries}). "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}"
+                )
+                await asyncio.sleep(retry_delay)
+
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Unexpected error when getting template| Sleep <y>{retry_delay}</y> sec "
-                    f"| {error}")
+                    f"{self.session_name} | Unexpected error when getting template (Attempt {attempt + 1}/{max_retries}). "
+                    f"Sleep <y>{retry_delay}</y> sec | {error}"
+                )
                 await asyncio.sleep(retry_delay)
 
         logger.error(f"{self.session_name} | Failed to get template after {max_retries} attempts")
@@ -498,8 +598,9 @@ class Tapper:
         templates = []
         _headers = copy.deepcopy(headers)
         _headers['User-Agent'] = self.user_agent
+
         for offset in range(0, offset, 12):
-            url = f"https://notpx.app/api/v1/image/template/list?limit={12}&offset={offset}"
+            url = f"https://notpx.app/api/v1/image/template/list?limit=12&offset={offset}"
 
             for attempt in range(max_retries):
                 try:
@@ -511,9 +612,23 @@ class Tapper:
                     break
 
                 except aiohttp.ClientResponseError as error:
+                    if error is Unauthorized:
+                        logger.warning(
+                            f"{self.session_name} | 401 Unauthorized when fetching templates. Reauthorizing..."
+                        )
+                        await self.authorise(http_client=http_client)
+                        continue
+
+                    if 400 <= error.status < 500:
+                        logger.error(
+                            f"{self.session_name} | 4xx Error during fetching templates: {error}. No retries will be "
+                            f"attempted."
+                        )
+                        raise error
+
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Attempt {attempt} failed to fetch templates (HTTP {error.status}) | "
+                        f"{self.session_name} | Attempt {attempt + 1} failed to fetch templates (HTTP {error.status}) | "
                         f"Retrying in <y>{retry_delay}</y> seconds. Error: {error.message}"
                     )
                     await asyncio.sleep(retry_delay)
@@ -521,7 +636,7 @@ class Tapper:
                 except aiohttp.ClientError as error:
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Attempt {attempt} failed due to client error | "
+                        f"{self.session_name} | Attempt {attempt + 1} failed due to client error | "
                         f"Retrying in <y>{retry_delay}</y> seconds. Error: {error}"
                     )
                     await asyncio.sleep(retry_delay)
@@ -529,7 +644,7 @@ class Tapper:
                 except Exception as error:
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Unexpected error on attempt {attempt} | "
+                        f"{self.session_name} | Unexpected error on attempt {attempt + 1} | "
                         f"Retrying in <y>{retry_delay}</y> seconds. Error: {error}"
                     )
                     await asyncio.sleep(retry_delay)
@@ -538,6 +653,7 @@ class Tapper:
             logger.info(f"{self.session_name} | Successfully fetched {len(templates)} templates.")
         else:
             logger.error(f"{self.session_name} | Failed to fetch templates after {max_retries} attempts")
+
         return templates if templates else None
 
     async def get_tournament_templates(self, http_client: aiohttp.ClientSession, offset=16):
@@ -546,8 +662,10 @@ class Tapper:
         templates = []
         _headers = copy.deepcopy(headers)
         _headers['User-Agent'] = self.user_agent
+
         for offset in range(0, offset, 16):
-            url = f"https://notpx.app/api/v1/tournament/template/randomList?limit={offset}"
+            url = f"https://notpx.app/api/v1/tournament/template/list?limit={offset}"
+
             for attempt in range(max_retries):
                 try:
                     response = await http_client.get(url=url, headers=_headers)
@@ -558,9 +676,24 @@ class Tapper:
                     break
 
                 except aiohttp.ClientResponseError as error:
+                    if error is Unauthorized:
+                        logger.warning(
+                            f"{self.session_name} | 401 Unauthorized when fetching tournament templates."
+                            f" Reauthorizing..."
+                        )
+                        await self.authorise(http_client=http_client)
+                        continue
+
+                    if 400 <= error.status < 500:
+                        logger.error(
+                            f"{self.session_name} | 4xx Error during fetching tournament templates: {error}."
+                            f" No retries will be attempted."
+                        )
+                        raise error
+
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Attempt {attempt} failed to fetch tournament "
+                        f"{self.session_name} | Attempt {attempt + 1} failed to fetch tournament "
                         f"templates (HTTP {error.status}) | Retrying in <y>{retry_delay}</y> seconds."
                         f" Error: {error.message}"
                     )
@@ -569,7 +702,7 @@ class Tapper:
                 except aiohttp.ClientError as error:
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Attempt {attempt} failed due to client error | "
+                        f"{self.session_name} | Attempt {attempt + 1} failed due to client error | "
                         f"Retrying in <y>{retry_delay}</y> seconds. Error: {error}"
                     )
                     await asyncio.sleep(retry_delay)
@@ -577,7 +710,7 @@ class Tapper:
                 except Exception as error:
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Unexpected error on attempt {attempt} | "
+                        f"{self.session_name} | Unexpected error on attempt {attempt + 1} | "
                         f"Retrying in <y>{retry_delay}</y> seconds. Error: {error}"
                     )
                     await asyncio.sleep(retry_delay)
@@ -586,6 +719,7 @@ class Tapper:
             logger.info(f"{self.session_name} | Successfully fetched {len(templates)} tournament templates")
         else:
             logger.error(f"{self.session_name} | Failed to fetch tournament templates after {max_retries} attempts")
+
         return templates if templates else None
 
     async def get_unpopular_template(self, http_client: aiohttp.ClientSession, templates):
@@ -593,10 +727,7 @@ class Tapper:
         max_retries = 5
 
         sorted_templates = sorted(templates, key=lambda x: x['subscribers'])
-        if len(sorted_templates) >= 10:
-            candidates = sorted_templates[:10]
-        else:
-            candidates = sorted_templates
+        candidates = sorted_templates[:10] if len(sorted_templates) >= 10 else sorted_templates
 
         template = random.choice(candidates)
         template_data = None
@@ -612,21 +743,42 @@ class Tapper:
                 break
 
             except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized when getting template {template_id}."
+                        f" Reauthorizing..."
+                    )
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during getting template: {error}."
+                        f" No retries will be attempted."
+                    )
+                    raise error
+
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Template request attempt {attempt} for template {template_id} failed | "
-                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
+                    f"{self.session_name} | Template request attempt {attempt + 1} for template {template_id} failed | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}"
+                )
                 await asyncio.sleep(retry_delay)
-                continue
 
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(
                     f"{self.session_name} | Unexpected error when getting template {template_id} | "
-                    f"Sleep <y>{retry_delay}</y> sec | {error}")
+                    f"Sleep <y>{retry_delay}</y> sec | {error}"
+                )
                 await asyncio.sleep(retry_delay)
-                continue
-        template_data['url'] = f"https://static.notpx.app/templates/{template_id}.png"
+
+        if template_data:
+            template_data['url'] = f"https://static.notpx.app/templates/{template_id}.png"
+        else:
+            logger.error(
+                f"{self.session_name} | Failed to fetch data for template {template_id} after {max_retries} attempts")
+
         return template_data
 
     async def subscribe_template(self, http_client: aiohttp.ClientSession, template_id):
@@ -635,28 +787,48 @@ class Tapper:
         url = f"https://notpx.app/api/v1/image/template/subscribe/{template_id}"
         _headers = copy.deepcopy(headers_subscribe)
         _headers['User-Agent'] = self.user_agent
+
         for attempt in range(max_retries):
             try:
                 template_req = await http_client.put(url=url, headers=_headers)
                 template_req.raise_for_status()
-                logger.info(f"{self.session_name} | Successfully subscribed to template {template_id}")
+                logger.info(f"{self.session_name} | Successfully subscribed to template: {template_id}")
                 return True
 
             except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized when subscribing to template: {template_id}."
+                        f" Reauthorizing..."
+                    )
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during subscribing to template: {error}."
+                        f" No retries will be attempted."
+                    )
+                    raise error
+
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Subscription attempt {attempt} for template {template_id} failed | "
-                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
+                    f"{self.session_name} | Subscription attempt {attempt + 1} for template {template_id} failed | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}"
+                )
                 await asyncio.sleep(retry_delay)
 
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
                 logger.error(
                     f"{self.session_name} | Unexpected error when subscribing to template {template_id} | "
-                    f"Sleep <y>{retry_delay}</y> sec | {error}")
-                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
+                    f"Sleep <y>{retry_delay}</y> sec | {error}"
+                )
+                await asyncio.sleep(retry_delay)
+
         logger.error(
             f"{self.session_name} | Failed to subscribe to template {template_id} after {max_retries} attempts")
+        return False
 
     async def use_secret_words(self, http_client: aiohttp.ClientSession):
         base_delay = 2
@@ -664,11 +836,13 @@ class Tapper:
         secret_words = settings.SECRET_WORDS
         await self.update_status(http_client=http_client)
         quests = self.status["quests"]
+
         if quests:
             used_secret_words = [key.split("secretWord:")[1] for key in self.status["quests"]
-                               if key.startswith("secretWord:")]
+                                 if key.startswith("secretWord:")]
         else:
             used_secret_words = []
+
         unused_secret_words = [word for word in secret_words if word not in used_secret_words]
         _headers = copy.deepcopy(headers)
         _headers['User-Agent'] = self.user_agent
@@ -677,11 +851,14 @@ class Tapper:
         domain = URL(f"{parsed_url.scheme}://{parsed_url.netloc}")
         cookie_jar = http_client.cookie_jar
         cookies = cookie_jar.filter_cookies(domain)
+
         if '__cf_bm' in cookies:
             cf_bm_value = cookies['__cf_bm'].value
             _headers.update({"Cookie": f"__cf_bm={cf_bm_value}"})
+
         for secret_word in unused_secret_words:
             payload = {"secret_word": secret_word}
+
             for attempt in range(max_retries):
                 try:
                     secret_req = await http_client.post(url=url, headers=_headers, json=payload)
@@ -690,9 +867,23 @@ class Tapper:
                     return True
 
                 except aiohttp.ClientResponseError as error:
+                    if error is Unauthorized:
+                        logger.warning(
+                            f"{self.session_name} | 401 Unauthorized when using secret word: '{secret_word}'."
+                            f" Reauthorizing...")
+                        await self.authorise(http_client=http_client)
+                        continue
+
+                    if 400 <= error.status < 500:
+                        logger.error(
+                            f"{self.session_name} | 4xx Error during using secret word: {error}."
+                            f" No retries will be attempted."
+                        )
+                        raise error
+
                     retry_delay = base_delay * (attempt + 1)
                     logger.warning(
-                        f"{self.session_name} | Secret word usage attempt {attempt} for '{secret_word}' failed | "
+                        f"{self.session_name} | Secret word usage attempt {attempt + 1} for '{secret_word}' failed | "
                         f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
                     await asyncio.sleep(retry_delay)
 
@@ -702,6 +893,7 @@ class Tapper:
                         f"{self.session_name} | Unexpected error when using the secret word '{secret_word}' | "
                         f"Sleep <y>{retry_delay}</y> sec | {error}")
                     await asyncio.sleep(retry_delay)
+
             logger.error(
                 f"{self.session_name} | Unable to use the secret word '{secret_word}' after {max_retries} attempts")
 
@@ -711,17 +903,33 @@ class Tapper:
         url = f"https://notpx.app/api/v1/tournament/template/subscribe/{template_id}"
         _headers = copy.deepcopy(headers_subscribe)
         _headers['User-Agent'] = self.user_agent
+
         for attempt in range(max_retries):
             try:
                 template_req = await http_client.put(url=url, headers=_headers)
                 template_req.raise_for_status()
-                logger.info(f"{self.session_name} | Successfully subscribed to tournament template {template_id}")
+                logger.info(f"{self.session_name} | Successfully subscribed to tournament template: {template_id}")
                 return True
 
             except aiohttp.ClientResponseError as error:
+                # Handle 401 Unauthorized by reauthorizing
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized when subscribing to template: {template_id}."
+                        f" Reauthorizing...")
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during subscribing to template: {error}."
+                        f" No retries will be attempted."
+                    )
+                    raise error
+
                 retry_delay = base_delay * (attempt + 1)
                 logger.warning(
-                    f"{self.session_name} | Subscription attempt {attempt} for template {template_id} failed | "
+                    f"{self.session_name} | Subscription attempt {attempt + 1} for template {template_id} failed | "
                     f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}")
                 await asyncio.sleep(retry_delay)
 
@@ -730,10 +938,12 @@ class Tapper:
                 logger.error(
                     f"{self.session_name} | Unexpected error when subscribing to tournament template {template_id} | "
                     f"Sleep <y>{retry_delay}</y> sec | {error}")
-                await asyncio.sleep(retry_delay)  # Чекає перед наступною спробою
+                await asyncio.sleep(retry_delay)  # Wait before next attempt
+
         logger.error(
-            f"{self.session_name} | Failed to subscribe to tournament template {template_id} after {max_retries}"
-            f" attempts")
+            f"{self.session_name} | Failed to subscribe to tournament template {template_id} after {max_retries} "
+            f"attempts")
+        return False
 
     async def download_image(self, url: str, http_client: ClientSession, cache: bool = False):
         download_folder = "app_data/images/"
@@ -765,6 +975,7 @@ class Tapper:
                 else:
                     logger.warning("__cf_bm cookie not found. Template loading might encounter issues.")
                 ssl_context = ssl.create_default_context(cafile=certifi.where())
+
                 async with http_client.get(url, headers=_headers, ssl=ssl_context) as response:
                     if response.status == 200:
                         image_data = await response.read()
@@ -779,7 +990,17 @@ class Tapper:
                             self.memory_cache.set(url, image)
                         return image
 
+                    elif response.status == 401:
+                        # Handle Unauthorized (401) error by re-authenticating
+                        logger.warning(f"{self.session_name} | 401 Unauthorized when downloading image from {url}."
+                                       f" Reauthorizing...")
+                        await self.authorise(http_client=http_client)  # Assuming this method handles re-authentication
+                        continue  # Retry the operation after re-authenticating
                     if 400 <= response.status < 500:
+                        logger.error(
+                            f"{self.session_name} | 4xx Error during downloading image from {url}"
+                            f" No retries will be attempted."
+                        )
                         raise Exception(f"Client error {response.status} for URL: {url}")
 
                     delay = base_delay * (attempt + 1)
@@ -802,7 +1023,8 @@ class Tapper:
 
         raise Exception(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
 
-    def find_difference(self, art_image, canvas_image, start_x, start_y, block_size=8):
+    @staticmethod
+    def find_difference(art_image, canvas_image, start_x, start_y, block_size=2):
         original_width, original_height = art_image.size
         canvas_width, canvas_height = canvas_image.size
 
@@ -837,10 +1059,10 @@ class Tapper:
                     if art_pixel != canvas_pixel:
                         hex_color = "#{:02X}{:02X}{:02X}".format(art_pixel[0], art_pixel[1], art_pixel[2])
                         return [start_x + x, start_y + y, hex_color]
-
         return None
 
-    async def get_random_template_pixel(self, template, template_image):
+    @staticmethod
+    async def get_random_template_pixel(template, template_image):
         random.seed(os.urandom(8))
 
         img_width = template_image.width
@@ -857,6 +1079,8 @@ class Tapper:
     def determine_option(self):
         if settings.DRAW_IMAGE:
             return Option.USER_IMAGE
+        elif settings.DRAW_TOURNAMENT_TEMPLATE:
+            return Option.TOURNAMENT_TEMPLATE
         elif self.template and settings.DAW_MAIN_TEMPLATE:
             options = [Option.USER_TEMPLATE, Option.MAIN_TEMPLATE]
             weights = (70, 30)
@@ -880,7 +1104,7 @@ class Tapper:
         if option == Option.USER_IMAGE:
             x, y, color = self.pixel_chain.get_pixel()
             pixel_id = get_pixel_id(x, y)
-        elif option == Option.USER_TEMPLATE:
+        elif (option == Option.USER_TEMPLATE) or (option == Option.TOURNAMENT_TEMPLATE):
             template_image = await self.download_image(self.template['url'], http_client, cache=True)
             if template_image:
                 if settings.RANDOM_PIXEL_MODE:
@@ -904,7 +1128,7 @@ class Tapper:
                     x, y, color = diffs
                     pixel_id = get_pixel_id(x, y)
 
-        elif option == option.MAIN_TEMPLATE:
+        elif option == Option.MAIN_TEMPLATE:
             image_parser = JSArtParserAsync(http_client)
             arts = await image_parser.get_all_arts_data()
 
@@ -953,7 +1177,7 @@ class Tapper:
 
                 for attempt in range(max_retries):
                     try:
-                        previous_balance = self.status['userBalance']
+                        previous_balance = round(self.status['userBalance'], 1)
                         new_pixel_info, option = await self.prepare_pixel_info(http_client=http_client)
                         if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
                             logger.info(
@@ -961,20 +1185,38 @@ class Tapper:
                             await self.subscribe_unpopular_template(http_client=http_client)
                             continue
                         x, y, color, pixel_id = new_pixel_info
+                        url = 'https://notpx.app/api/v1/repaint/start'
+                        payload = {"pixelId": pixel_id, "newColor": color}
+                        paint_request = await http_client.post(url=url, json=payload)
 
-                        paint_request = await http_client.post(
-                            url='https://notpx.app/api/v1/repaint/start',
-                            json={"pixelId": pixel_id, "newColor": color})
+                        # Check if 401 Unauthorized occurs and re-authenticate
+                        if paint_request.status == 401:
+                            logger.warning(
+                                f"{self.session_name} | 401 Unauthorized during paint request. Reauthorizing...")
+                            await self.authorise(
+                                http_client=http_client)  # Assuming this method handles re-authentication
+                            continue  # Retry the operation after re-authenticating
+                        elif 400 <= paint_request.status < 500:
+                            raise Exception(f"Client error {paint_request.status} for URL: {url} "
+                                            f"with payload {payload}")
+
                         paint_request.raise_for_status()
 
                         # Update balance and charges
-                        current_balance = (await paint_request.json())["balance"]
+                        request_data = await paint_request.json()
+                        current_balance = round(request_data["balance"], 1)
                         if current_balance:
                             self.status['userBalance'] = current_balance
 
+                        user_reward = None
+                        if option == Option.TOURNAMENT_TEMPLATE:
+                            user_reward = request_data['reward_user']
+
                         # Calculate reward delta
                         delta = None
-                        if current_balance and previous_balance:
+                        if option == Option.TOURNAMENT_TEMPLATE:
+                            delta = f"{user_reward} 🟨"
+                        elif current_balance and previous_balance:
                             delta = round(current_balance - previous_balance, 1)
                         else:
                             logger.warning(
@@ -986,7 +1228,8 @@ class Tapper:
                         opposite_r, opposite_g, opposite_b = get_opposite_color(r, g, b)
                         opposite_color = f"\033[38;2;{opposite_r};{opposite_g};{opposite_b}m"
                         logger.success(
-                            f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}{color}"
+                            f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}"
+                            f"{color}"
                             f"{Style.RESET_ALL}| Reward: <e>{delta}</e>"
                         )
                         if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
@@ -1029,18 +1272,29 @@ class Tapper:
             await self.update_status(http_client=http_client)
             boosts = self.status['boosts']
             for name, level in sorted(boosts.items(), key=lambda item: item[1]):
+                url = f'https://notpx.app/api/v1/mining/boost/check/{name}'
                 try:
                     max_level_not_reached = (level + 1) in upgrades.get(name, {}).get("levels", {})
                     if max_level_not_reached:
                         user_balance = float(await self.get_balance(http_client))
                         price_level = upgrades[name]["levels"][level + 1]["Price"]
                         if user_balance >= price_level:
-                            upgrade_req = await http_client.get(
-                                f'https://notpx.app/api/v1/mining/boost/check/{name}')
+                            upgrade_req = await http_client.get(url=url)
                             upgrade_req.raise_for_status()
                             logger.success(f"{self.session_name} | Upgraded boost: {name}")
-                        #else:
-                        #    logger.warning(f"{self.session_name} | Not enough money to keep upgrading {name}")
+                    await asyncio.sleep(delay=randint(5, 10))
+
+                except aiohttp.ClientResponseError as error:
+                    if error is Unauthorized:
+                        logger.warning(
+                            f"{self.session_name} | 401 Unauthorized during upgrade request for {name}."
+                            f" Reauthorizing...")
+                        await self.authorise(http_client=http_client)  # Assuming this method handles re-authentication
+                        continue  # Retry the operation after re-authenticating
+
+                    elif 400 <= error.status < 500:
+                        raise Exception(f"Client error {error.status} for URL: {url}")
+                    logger.error(f"{self.session_name} | Server-side error when upgrading {name}: {error}.")
                     await asyncio.sleep(delay=randint(5, 10))
                 except Exception as error:
                     logger.error(f"{self.session_name} | Unknown error when upgrading {name}: {error}.")
@@ -1057,7 +1311,18 @@ class Tapper:
         reward = None
         for attempt in range(max_retries):
             try:
-                response = await http_client.get('https://notpx.app/api/v1/mining/claim')
+                url = 'https://notpx.app/api/v1/mining/claim'
+                response = await http_client.get(url=url)
+
+                # Check for 401 Unauthorized and re-authenticate if necessary
+                if response.status == 401:
+                    logger.warning(f"{self.session_name} | 401 Unauthorized during claim request. Reauthorizing...")
+                    await self.authorise(http_client=http_client)  # Assuming this method handles re-authentication
+                    continue  # Retry the operation after re-authenticating
+
+                elif 400 <= response.status < 500:
+                    raise Exception(f"Client error {response.status} for URL: {url}")
+
                 response.raise_for_status()
                 response_json = await response.json()
                 reward = response_json.get('claimed')
@@ -1065,7 +1330,8 @@ class Tapper:
                 break
             except Exception as error:
                 retry_delay = base_delay * (attempt + 1)
-                logger.warning(f"{self.session_name} | Claim attempt {attempt + 1} | {error}")
+                logger.warning(
+                    f"{self.session_name} | Claim attempt {attempt + 1} failed | Retrying in <y>{retry_delay}</y> sec | {error}")
                 await asyncio.sleep(retry_delay)
             finally:
                 await asyncio.sleep(random.randint(5, 10))
@@ -1074,6 +1340,7 @@ class Tapper:
             logger.info(f"{self.session_name} | Claim completed successfully")
         else:
             logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
+
         await asyncio.sleep(random.randint(5, 10))
         return reward
 
@@ -1103,7 +1370,9 @@ class Tapper:
         await asyncio.sleep(random.randint(5, 10))
 
     async def choose_and_subscribe_template(self, http_client):
-        if settings.AUTO_DRAW:
+        if settings.DRAW_TOURNAMENT_TEMPLATE:
+            await self.choose_and_subscribe_tournament_template(http_client=http_client)
+        elif settings.AUTO_DRAW:
             if settings.USE_SPECIFIED_TEMPLATES:
                 current_template = await self.get_my_template(http_client=http_client)
                 template_id = random.choice(settings.SPECIFIED_TEMPLATES_ID_LIST)
@@ -1117,61 +1386,84 @@ class Tapper:
             elif settings.USE_UNPOPULAR_TEMPLATE:
                 await self.subscribe_unpopular_template(http_client=http_client)
 
-
     async def watch_ads(self, http_client):
         _headers = copy.deepcopy(headers_advertisement)
         _headers['User-Agent'] = self.user_agent
-        try:
-            params = {
-                "blockId": 4853,
-                "tg_id": self.user_info["id"],
-                "tg_platform": "android",
-                "platform": "Linux aarch64",
-                "language": self.tg_client.lang_code,
-                "chat_type": "sender",
-                "chat_instance": int(self.chat_instance),
-                "top_domain": "app.notpx.app",
-                "connectiontype": 1
-            }
-            #Trackings
-            while True:
-                base_url = "https://api.adsgram.ai/adv"
-                full_url = f"{base_url}?{urlencode(params)}"
-                adv_response = await http_client.get(full_url, headers=_headers)
-                adv_response.raise_for_status()
-                adv_data = await adv_response.json()
-                if adv_data:
-                    logger.info(f"{self.session_name} | A new advertisement has been found for viewing! | Title: {adv_data['banner']['bannerAssets'][1]['value']} | Type: {adv_data['bannerType']}")
-                    previous_balance = await self.get_balance(http_client=http_client)
-                    render_url = adv_data['banner']['trackings'][0]['value']
-                    render_response = await http_client.get(render_url, headers=_headers)
-                    render_response.raise_for_status()
-                    await asyncio.sleep(random.randint(1, 5))
-                    show_url = adv_data['banner']['trackings'][1]['value']
-                    show_response = await http_client.get(show_url, headers=_headers)
-                    show_response.raise_for_status()
-                    await asyncio.sleep(random.randint(10, 15))
-                    reward_url = adv_data['banner']['trackings'][4]['value']
-                    reward_response = await http_client.get(reward_url, headers=_headers)
-                    reward_response.raise_for_status()
-                    await asyncio.sleep(random.randint(1, 5))
-                    await self.update_status(http_client=http_client)
-                    current_balance = await self.get_balance(http_client=http_client)
-                    delta = round(current_balance - previous_balance, 1)
-                    logger.success(f"{self.session_name} | Ad view completed successfully. | Reward: <e>{delta}</e>")
-                    await asyncio.sleep(random.randint(30, 35))
-                else:
-                    logger.info(f"{self.session_name} | No ads are available for viewing at the moment.")
-                    break
-        except Exception as e:
-            logger.error(e)
+        params = {
+            "blockId": 4853,
+            "tg_id": self.user_info["id"],
+            "tg_platform": "android",
+            "platform": "Linux aarch64",
+            "language": self.tg_client.lang_code,
+            "chat_type": "sender",
+            "chat_instance": int(self.chat_instance),
+            "top_domain": "app.notpx.app",
+            "connectiontype": 1
+        }
+        # Trackings
+        while True:
+            base_delay = 2
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    base_url = "https://api.adsgram.ai/adv"
+                    full_url = f"{base_url}?{urlencode(params)}"
+                    adv_response = await http_client.get(full_url, headers=_headers)
+                    adv_response.raise_for_status()
+                    adv_data = await adv_response.json()
+                    if adv_data:
+                        logger.info(
+                            f"{self.session_name} | A new advertisement has been found for viewing! | Title: "
+                            f"{adv_data['banner']['bannerAssets'][1]['value']} | Type: {adv_data['bannerType']}")
+                        previous_balance = round(await self.get_balance(http_client=http_client), 1)
+                        render_url = adv_data['banner']['trackings'][0]['value']
+                        render_response = await http_client.get(render_url, headers=_headers)
+                        render_response.raise_for_status()
+                        await asyncio.sleep(random.randint(1, 5))
+                        show_url = adv_data['banner']['trackings'][1]['value']
+                        show_response = await http_client.get(show_url, headers=_headers)
+                        show_response.raise_for_status()
+                        await asyncio.sleep(random.randint(10, 15))
+                        reward_url = adv_data['banner']['trackings'][4]['value']
+                        reward_response = await http_client.get(reward_url, headers=_headers)
+                        reward_response.raise_for_status()
+                        await asyncio.sleep(random.randint(1, 5))
+                        await self.update_status(http_client=http_client)
+                        current_balance = round(await self.get_balance(http_client=http_client), 1)
+                        delta = round(current_balance - previous_balance, 1)
+                        logger.success(
+                            f"{self.session_name} | Ad view completed successfully. | Reward: <e>{delta}</e>")
+                        await asyncio.sleep(random.randint(30, 35))
+                    else:
+                        logger.info(f"{self.session_name} | No ads are available for viewing at the moment.")
+                        return
+
+                except aiohttp.ClientResponseError as error:
+                    if error is Unauthorized:
+                        logger.warning(f"{self.session_name} | 401 Unauthorized when watching add. Reauthorizing...")
+                        await self.authorise(http_client=http_client)
+                        continue
+
+                    if 400 <= error.status < 500:
+                        logger.error(
+                            f"{self.session_name} | 4xx Error during using secret word: {error}."
+                            f" No retries will be attempted."
+                        )
+                        raise error
+
+                except Exception as error:
+                    retry_delay = base_delay * (attempt + 1)
+                    logger.warning(
+                        f"{self.session_name} | Add watching attempt {attempt + 1} failed | Retrying in"
+                        f" <y>{retry_delay}</y> sec | {error}")
+                    await asyncio.sleep(retry_delay)
 
     async def join_squad_if_not_in(self, user_agent):
         if not await self.in_squad(self.user_info):
             http_client, connector = await self.create_session_with_retry(user_agent)
             tg_web_data = await self.get_tg_web_data(bot_peer=self.squads_bot_peer,
                                                      ref="cmVmPTQ2NDg2OTI0Ng==",
-                                                     short_name="squads", proxy=self.proxy)
+                                                     short_name="squads")
             await self.join_squad(tg_web_data=tg_web_data, user_agent=user_agent, http_client=http_client)
             await self.close_session(http_client, connector)
         else:
@@ -1179,7 +1471,10 @@ class Tapper:
         await asyncio.sleep(random.randint(5, 10))
 
     async def subscribe_and_paint(self, http_client):
-        if settings.AUTO_DRAW:
+        if settings.DRAW_TOURNAMENT_TEMPLATE:
+            await self.choose_and_subscribe_tournament_template(http_client=http_client)
+            await self.paint(http_client=http_client)
+        elif settings.AUTO_DRAW:
             if settings.USE_SPECIFIED_TEMPLATES:
                 current_template = await self.get_my_template(http_client=http_client)
                 template_id = random.choice(settings.SPECIFIED_TEMPLATES_ID_LIST)
@@ -1193,15 +1488,60 @@ class Tapper:
             await self.paint(http_client=http_client)
 
     async def choose_and_subscribe_tournament_template(self, http_client):
-        templates = await self.get_tournament_templates(http_client=http_client)
-        chosen_template = random.choice(templates)
-        await self.subscribe_tournament_template(http_client=http_client, template_id=chosen_template["id"])
+    #    templates = await self.get_tournament_templates(http_client=http_client)
+    #    chosen_template = random.choice(templates)
+    #    subscribing_successful = await self.subscribe_tournament_template(http_client=http_client,
+    #                                                                      template_id=chosen_template["id"])
+    #    if subscribing_successful:
+    #        if self.template:
+    #            if self.template["id"] != chosen_template["id"]:
+    #                self.template = chosen_template
+    #            else:
+    #                logger.info(f"{self.session_name} | Already subscribed to template ID: "
+    #                            f"{chosen_template['id']}")
+    #        else:
+    #            self.template = chosen_template
+    #    else:
+    #        logger.error(f"Unable to subscribe to tournament template: {chosen_template['id']}")
+        current_template = await self.get_my_template(http_client=http_client)
+        self.template = current_template
 
     async def check_response(self, http_client):
         headers_ = copy.deepcopy(headers_check)
         headers_['User-Agent'] = self.user_agent
         response = await http_client.post("https://notpx.app/api/v1/offer/check", headers=headers_)
         response.raise_for_status()
+
+    async def get_periods(self, http_client):
+        headers_ = copy.deepcopy(headers_periods)
+        headers_['User-Agent'] = self.user_agent
+        base_delay = 2
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = await http_client.get("https://notpx.app/api/v1/tournament/periods", headers=headers_)
+                response.raise_for_status()
+                response_data = await response.json()
+                return response_data
+            except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(f"{self.session_name} | 401 Unauthorized when getting periods. Reauthorizing...")
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during getting periods: {error}."
+                        f" No retries will be attempted."
+                    )
+                    raise error
+
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Getting periods attempt {attempt + 1} failed | Retrying in"
+                    f" <y>{retry_delay}</y> sec | {error}")
+                await asyncio.sleep(retry_delay)
 
     async def create_session(self, user_agent: str) -> tuple[ClientSession, TCPConnector]:
         _headers = {'User-Agent': user_agent}
@@ -1231,6 +1571,24 @@ class Tapper:
         if connector:
             await connector.close()
 
+    async def authorise(self, http_client, ref=None):
+        while True:
+            tg_web_data = await self.get_tg_web_data(bot_peer=self.main_bot_peer, ref=ref,
+                                                     short_name="app")
+            if tg_web_data is None:
+                continue
+
+            http_client.headers["Authorization"] = f"initData {tg_web_data}"
+            self.init_data = f"initData {tg_web_data}"
+            logger.info(f"{self.session_name} | Started login")
+            self.user_info = await self.login(http_client=http_client)
+            if self.user_info:
+                if not settings.RANDOM_PIXEL_MODE:
+                    self.websocket_token = self.user_info["websocketToken"]
+                    self.websocket = WebsocketManager(http_client=http_client, token=self.websocket_token)
+                logger.success(f"{self.session_name} | Successful login")
+                return
+
     async def run(self, user_agent: str, start_delay: int, proxy: str | None) -> None:
         self.proxy = proxy
         access_token_created_time = datetime.now()
@@ -1256,33 +1614,34 @@ class Tapper:
                     await self.check_proxy(http_client=http_client)
 
                 if (datetime.now() - access_token_created_time >= token_live_time) or tg_web_data is None:
-                    tg_web_data = await self.get_tg_web_data(proxy=proxy, bot_peer=self.main_bot_peer, ref=link,
-                                                             short_name="app")
-                    if tg_web_data is None:
-                        continue
-
-                    http_client.headers["Authorization"] = f"initData {tg_web_data}"
-                    self.init_data = f"initData {tg_web_data}"
-                    logger.info(f"{self.session_name} | Started login")
-                    self.user_info = await self.login(http_client=http_client)
-                    if not settings.RANDOM_PIXEL_MODE:
-                        self.websocket_token = self.user_info["websocketToken"]
-                        self.websocket = WebsocketManager(http_client=http_client, token=self.websocket_token)
-                    logger.success(f"{self.session_name} | Successful login")
-
-                    # Update access token creation time and token live time
+                    await self.authorise(http_client=http_client, ref=link)
                     access_token_created_time = datetime.now()
                     token_live_time = timedelta(seconds=randint(600, 800))
 
                 await self.update_status(http_client=http_client)
                 balance = await self.get_balance(http_client)
                 logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
-                #await self.check_response(http_client=http_client)
+                # await self.check_response(http_client=http_client)
 
                 tasks = []
                 if settings.AUTO_DRAW:
-                    tasks.append(self.subscribe_and_paint(http_client=http_client))
+                    if settings.DRAW_TOURNAMENT_TEMPLATE:
+                        its_round_period = False
 
+                        periods = await self.get_periods(http_client=http_client)
+                        if periods:
+                            active_period = periods["activePeriod"]
+                            if active_period["PeriodType"] == "round":
+                                its_round_period = True
+                                logger.info(f'{self.session_name} | This is the <y>Round {active_period["RoundID"]}</y>'
+                                            f' period, drawing...')
+                            elif active_period["PeriodType"] == "break":
+                                its_round_period = False
+                                logger.info(f'{self.session_name} | This is the <y>break</y> period, resting...')
+                        if its_round_period:
+                            tasks.append(self.subscribe_and_paint(http_client=http_client))
+                    else:
+                        tasks.append(self.subscribe_and_paint(http_client=http_client))
                 if settings.AUTO_UPGRADE:
                     tasks.append(self.upgrade(http_client=http_client))
 
@@ -1298,8 +1657,8 @@ class Tapper:
                 if settings.USE_SECRET_WORDS:
                     tasks.append(self.use_secret_words(http_client=http_client))
 
-                if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
-                    tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))
+                #if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
+                #    tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))
 
                 if settings.WATCH_ADS:
                     tasks.append(self.watch_ads(http_client=http_client))
