@@ -47,13 +47,13 @@ from ..utils.sleep_manager import SleepManager
 init(autoreset=True)
 
 
-def get_coordinates(pixel_id, width=1000):
+def get_coordinates(pixel_id, width=1024):
     y = (pixel_id - 1) // width
     x = (pixel_id - 1) % width
     return x, y
 
 
-def get_pixel_id(x, y, width=1000):
+def get_pixel_id(x, y, width=1024):
     return y * width + x + 1
 
 
@@ -195,7 +195,8 @@ class Tapper:
         for attempt in range(max_retries):
             try:
                 if self.proxy:
-                    await self.check_proxy(self.proxy)
+                    #await self.check_proxy(self.proxy)
+                    pass
 
                 http_client.headers["Host"] = "api.notcoin.tg"
                 http_client.headers["bypass-tunnel-reminder"] = "x"
@@ -1027,7 +1028,7 @@ class Tapper:
         raise Exception(f"{self.session_name} | Failed to download the image after {max_retries} attempts")
 
     @staticmethod
-    def find_difference(art_image, canvas_image, start_x, start_y, block_size=2):
+    def find_difference(art_image, canvas_image, start_x, start_y, block_size=4):
         original_width, original_height = art_image.size
         canvas_width, canvas_height = canvas_image.size
 
@@ -1167,8 +1168,8 @@ class Tapper:
 
         else:
             color = random.choice(colors)
-            pixel_id = random.randint(1, 1000000)
-            x, y = get_coordinates(pixel_id=pixel_id, width=1000)
+            pixel_id = random.randint(1, 1048576)
+            x, y = get_coordinates(pixel_id=pixel_id, width=1024)
 
         return (x, y, color, pixel_id), option
 
@@ -1185,6 +1186,7 @@ class Tapper:
 
                 for attempt in range(max_retries):
                     try:
+                        await self.update_status(http_client=http_client)
                         previous_balance = round(self.status['userBalance'], 1)
                         new_pixel_info, option = await self.prepare_pixel_info(http_client=http_client)
                         if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
@@ -1221,9 +1223,9 @@ class Tapper:
 
                         # Calculate reward delta
                         delta = None
-                        if option == Option.TOURNAMENT_TEMPLATE:
-                            delta = f"{user_reward} 🟨"
-                        elif current_balance and previous_balance:
+                        #if option == Option.TOURNAMENT_TEMPLATE:
+                        #    delta = f"{user_reward} 🟨"
+                        if current_balance and previous_balance:
                             delta = round(current_balance - previous_balance, 1)
                         else:
                             logger.warning(
@@ -1434,16 +1436,23 @@ class Tapper:
                         show_response = await http_client.get(show_url, headers=_headers)
                         show_response.raise_for_status()
                         await asyncio.sleep(random.randint(10, 15))
+                        show_url = adv_data['banner']['trackings'][2]['value']
+                        show_response = await http_client.get(show_url, headers=_headers)
+                        show_response.raise_for_status()
+                        await asyncio.sleep(random.randint(10, 15))
+                        show_url = adv_data['banner']['trackings'][3]['value']
+                        show_response = await http_client.get(show_url, headers=_headers)
+                        show_response.raise_for_status()
+                        await asyncio.sleep(random.randint(10, 15))
                         reward_url = adv_data['banner']['trackings'][4]['value']
                         reward_response = await http_client.get(reward_url, headers=_headers)
                         reward_response.raise_for_status()
-                        await asyncio.sleep(random.randint(1, 5))
+                        await asyncio.sleep(random.randint(30, 45))
                         await self.update_status(http_client=http_client)
                         current_balance = round(await self.get_balance(http_client=http_client), 1)
                         delta = round(current_balance - previous_balance, 1)
                         logger.success(
                             f"{self.session_name} | Ad view completed successfully. | Reward: <e>{delta}</e>")
-                        await asyncio.sleep(random.randint(30, 35))
                     else:
                         logger.info(f"{self.session_name} | No ads are available for viewing at the moment.")
                         return
