@@ -1586,6 +1586,8 @@ class Tapper:
             else:
                 logger.error(f"Unable to subscribe to tournament template: {chosen_template['id']}")
         else:
+            logger.info(f"{self.session_name} | Already subscribed to template ID: "
+                        f"{current_template['id']}")
             self.template = current_template
 
     async def check_response(self, http_client):
@@ -1722,8 +1724,11 @@ class Tapper:
                                 logger.info(f'{self.session_name} | This is the <y>break</y> period, resting...')
                         if its_round_period:
                             tasks.append(self.subscribe_and_paint(http_client=http_client))
+                        else:
+                            await self.choose_and_subscribe_tournament_template(http_client=http_client)
                     else:
                         tasks.append(self.subscribe_and_paint(http_client=http_client))
+
                 if settings.AUTO_UPGRADE:
                     tasks.append(self.upgrade(http_client=http_client))
 

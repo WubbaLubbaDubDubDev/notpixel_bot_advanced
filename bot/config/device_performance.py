@@ -1,6 +1,6 @@
 device_performance = {
     "HIGH": [
-        "Pixel 7 Pro", "Pixel 7", "Pixel 6 Pro", "Pixel 6", "Pixel 6 XL", "SM-G998B", "SM-G996B",
+        "Pixel 7 Pro", "Pixel 7", "Pixel 6 Pro", "Pixel 6", "SM-G998B", "SM-G996B",
         "SM-N986B", "SM-N981B", "SM-G980F", "SM-G980U", "SM-G991B", "Redmi Note 12 Pro", "NE2215",
         "POCO F5 Pro", "IN2023", "IN2010", "LE2123", "LE2117"
     ],
