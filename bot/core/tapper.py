@@ -195,7 +195,7 @@ class Tapper:
         for attempt in range(max_retries):
             try:
                 if self.proxy:
-                    #await self.check_proxy(self.proxy)
+                    # await self.check_proxy(self.proxy)
                     pass
 
                 http_client.headers["Host"] = "api.notcoin.tg"
@@ -995,7 +995,7 @@ class Tapper:
                 if error is Unauthorized:
                     logger.warning(
                         f"{self.session_name} | 401 Unauthorized during image download. Reauthorizing..."
-                        )
+                    )
                     await self.authorise(http_client=http_client)
                     continue
 
@@ -1195,36 +1195,29 @@ class Tapper:
                             await self.subscribe_unpopular_template(http_client=http_client)
                             continue
                         x, y, color, pixel_id = new_pixel_info
-                        url = 'https://notpx.app/api/v1/repaint/start'
-                        payload = {"pixelId": pixel_id, "newColor": color}
-                        paint_request = await http_client.post(url=url, json=payload)
+                        # url = 'https://notpx.app/api/v1/repaint/start'
+                        # payload = {"pixelId": pixel_id, "newColor": color}
+                        # paint_request = await http_client.post(url=url, json=payload)
 
                         # Check if 401 Unauthorized occurs and re-authenticate
-                        if paint_request.status == 401:
-                            logger.warning(
-                                f"{self.session_name} | 401 Unauthorized during paint request. Reauthorizing...")
-                            await self.authorise(
-                                http_client=http_client)  # Assuming this method handles re-authentication
-                            continue  # Retry the operation after re-authenticating
-                        elif 400 <= paint_request.status < 500:
-                            raise Exception(f"Client error {paint_request.status} for URL: {url} "
-                                            f"with payload {payload}")
+                        # if paint_request.status == 401:
+                        #    logger.warning(
+                        #        f"{self.session_name} | 401 Unauthorized during paint request. Reauthorizing...")
+                        #    await self.authorise(
+                        #        http_client=http_client)  # Assuming this method handles re-authentication
+                        #    continue  # Retry the operation after re-authenticating
+                        # elif 400 <= paint_request.status < 500:
+                        #    raise Exception(f"Client error {paint_request.status} for URL: {url} "
+                        #                    f"with payload {payload}")
 
-                        paint_request.raise_for_status()
-
+                        # paint_request.raise_for_status()
+                        await self.websocket.paint(pixel_id, color)
                         # Update balance and charges
-                        request_data = await paint_request.json()
-                        current_balance = round(request_data["balance"], 1)
+                        current_balance = round(await self.get_balance(http_client=http_client), 1)
                         if current_balance:
                             self.status['userBalance'] = current_balance
-                        user_reward = None
-                        if option == Option.TOURNAMENT_TEMPLATE:
-                            user_reward = request_data['reward_user']
 
-                        # Calculate reward delta
                         delta = None
-                        #if option == Option.TOURNAMENT_TEMPLATE:
-                        #    delta = f"{user_reward} 🟨"
                         if current_balance and previous_balance:
                             delta = round(current_balance - previous_balance, 1)
                         else:
@@ -1744,7 +1737,7 @@ class Tapper:
                 if settings.USE_SECRET_WORDS:
                     tasks.append(self.use_secret_words(http_client=http_client))
 
-                #if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
+                # if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
                 #    tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))
 
                 if settings.WATCH_ADS:

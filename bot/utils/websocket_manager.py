@@ -102,6 +102,26 @@ class WebsocketManager:
         finally:
             await self.close_websocket()
 
+    async def paint(self, pixel_id, color):
+        try:
+            self.websocket = await self.http_client.ws_connect(
+                url=self.websocket_url,
+                protocols=["centrifuge-protobuf"],
+            )
+            self.payload = await self.__generate_payload(self.token)
+            await self.websocket.send_bytes(self.payload)
+
+            paint_payload = f'''<	j8
+-{{"type":0,"pixelId":{pixel_id},"color":"{color}"}}repaint'''.encode()
+            await self.websocket.send_bytes(paint_payload)
+
+        except ClientConnectionError as e:
+            logger.error(f"Failed to connect to WebSocket: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+        finally:
+            await self.close_websocket()
+
     async def close_websocket(self):
         if self.websocket:
             await self.websocket.close()
