@@ -46,21 +46,25 @@ class WebsocketManager:
         ]
         return centrifuge.encode_commands(auth_command)
 
-    async def __get_data(self):
-        msg = await self.websocket.receive()
-        if msg.type == WSMsgType.BINARY:
-            decoded_data = centrifuge.decode_message(msg.data)
-            if isinstance(decoded_data, bytes):
-                image = Image.open(BytesIO(decoded_data))
-                return image
-            elif msg.type == WSMsgType.TEXT:
-                return decoded_data
-            elif msg.type == WSMsgType.CLOSE:
-                raise WebSocketClosedError(f"WebSocket closed with code: {decoded_data}")
-            elif msg.type == WSMsgType.ERROR:
-                raise WebSocketGeneralError(f"WebSocket error: {decoded_data}")
-            else:
-                raise WebSocketUnhandledError(f"Unhandled WebSocket message type: {msg.type}")
+    async def __get_data(self, max_retries=5):
+        for attempt in range(1, max_retries + 1):
+            try:
+                msg = await self.websocket.receive()
+                if msg.type == WSMsgType.BINARY:
+                    decoded_data = centrifuge.decode_message(msg.data)
+                    if isinstance(decoded_data, bytes):
+                        image = Image.open(BytesIO(decoded_data))
+                        return image
+                    elif msg.type == WSMsgType.TEXT:
+                        return decoded_data
+                    elif msg.type == WSMsgType.CLOSE:
+                        raise WebSocketClosedError(f"WebSocket closed with code: {decoded_data}")
+                    elif msg.type == WSMsgType.ERROR:
+                        raise WebSocketGeneralError(f"WebSocket error: {decoded_data}")
+            except Exception as e:
+                if attempt == max_retries:
+                    raise WebSocketGeneralError(f"Failed to get data. {e}")
+                await asyncio.sleep(1)
 
     async def get_canvas(self):
         try:
@@ -71,34 +75,18 @@ class WebsocketManager:
             self.payload = await self.__generate_payload(self.token)
             await self.websocket.send_bytes(self.payload)
 
-            base_delay = 2
-            max_retries = 5
-
-            for attempt in range(max_retries):
-                try:
-                    data = await self.__get_data()
-                    if isinstance(data, str):
-                        logger.error(f"Received text response: {data}")
-                        continue
-                    elif isinstance(data, Image.Image):
-                        #logger.info("Canvas received")
-                        return data
-                except WebSocketClosedError as e:
-                    logger.error(f"WebSocket closed error: {e}")
-                except WebSocketGeneralError as e:
-                    logger.error(f"WebSocket general error: {e}")
-                except WebSocketUnhandledError as e:
-                    logger.error(f"Unhandled WebSocket error: {e}")
-
-                delay = base_delay * (attempt + 1)
-                logger.warning(f"Retrying in {delay} seconds...")
-                await asyncio.sleep(delay)
-
-            logger.error("Max retries reached, failed to get Canvas data")
+            data = await self.__get_data()
+            return data
+        except WebSocketClosedError as e:
+            raise e
+        except WebSocketGeneralError as e:
+            raise e
+        except WebSocketUnhandledError as e:
+            raise e
         except ClientConnectionError as e:
-            logger.error(f"Failed to connect to WebSocket: {e}")
+            raise e
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+            raise e
         finally:
             await self.close_websocket()
 
@@ -109,16 +97,24 @@ class WebsocketManager:
                 protocols=["centrifuge-protobuf"],
             )
             self.payload = await self.__generate_payload(self.token)
+
             await self.websocket.send_bytes(self.payload)
 
-            paint_payload = f'''<	j8
--{{"type":0,"pixelId":{pixel_id},"color":"{color}"}}repaint'''.encode()
-            await self.websocket.send_bytes(paint_payload)
+            msg = await self.websocket.receive()
+            if msg:
+                paint_payload = f'''<	j8
+                -{{"type":0,"pixelId":{pixel_id},"color":"{color}"}}repaint'''.encode()
+                if not self.websocket.closed:
+                    await self.websocket.send_bytes(paint_payload)
+                else:
+                    raise ClientConnectionError("WebSocket connection is closed.")
+            else:
+                raise
 
         except ClientConnectionError as e:
-            logger.error(f"Failed to connect to WebSocket: {e}")
+            raise e
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+            raise e
         finally:
             await self.close_websocket()
 

@@ -6,9 +6,12 @@ import os
 import random
 import base64
 import ssl
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
+
+import pytz
+
 from bot.utils.websocket_manager import WebsocketManager
 from aiohttp_socks import ProxyConnector
 
@@ -657,6 +660,80 @@ class Tapper:
 
         return templates if templates else None
 
+    async def get_history(self, http_client):
+        base_delay = 2
+        max_retries = 5
+
+        url = f"https://notpx.app/api/v1/history/all?offset=0&limit=50"
+
+        history = None
+
+        for attempt in range(max_retries):
+            try:
+                history_req = await http_client.get(url=url)
+                history_req.raise_for_status()
+                history = await history_req.json()
+                break
+
+            except aiohttp.ClientResponseError as error:
+                if error is Unauthorized:
+                    logger.warning(
+                        f"{self.session_name} | 401 Unauthorized when getting history."
+                        f" Reauthorizing..."
+                    )
+                    await self.authorise(http_client=http_client)
+                    continue
+
+                if 400 <= error.status < 500:
+                    logger.error(
+                        f"{self.session_name} | 4xx Error during getting history"
+                        f" No retries will be attempted."
+                    )
+                    raise error
+
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Template request attempt {attempt + 1} for history failed | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error.status}, {error.message}"
+                )
+                await asyncio.sleep(retry_delay)
+
+            except Exception as error:
+                retry_delay = base_delay * (attempt + 1)
+                logger.warning(
+                    f"{self.session_name} | Unexpected error when getting history | "
+                    f"Sleep <y>{retry_delay}</y> sec | {error}"
+                )
+                await asyncio.sleep(retry_delay)
+
+        else:
+            logger.error(
+                f"{self.session_name} | Failed to fetch history after {max_retries} attempts")
+
+        return history
+
+    async def get_history_filtered(self, http_client, action=None, datetime_from=None):
+
+        datetime_from = datetime_from.astimezone(pytz.utc)
+        if datetime_from and datetime_from.tzinfo is None:
+            datetime_from = datetime_from.replace(tzinfo=timezone.utc)
+
+        history = await self.get_history(http_client=http_client)
+        filtered_records = []
+
+        for record in history:
+            record_datetime = datetime.fromisoformat(record.get('dateTime').replace('Z', '+00:00'))
+
+            # Упевнюємося, що record_datetime також має часовий пояс
+            if record_datetime.tzinfo is None:
+                record_datetime = record_datetime.replace(tzinfo=timezone.utc)
+
+            # Фільтруємо за дією та датою
+            if record.get('action') == action and record_datetime >= datetime_from:
+                filtered_records.append(record)
+
+        return filtered_records
+
     async def get_tournament_templates(self, http_client: aiohttp.ClientSession, offset=16):
         base_delay = 2
         max_retries = 5
@@ -1176,6 +1253,7 @@ class Tapper:
     async def paint(self, http_client: aiohttp.ClientSession):
         previous_repaints = self.status['repaintsTotal']
         logger.info(f"{self.session_name} | Painting started")
+        start_datetime = datetime.now()
         try:
             await self.update_status(http_client=http_client)
             charges = self.status['charges']
@@ -1187,44 +1265,18 @@ class Tapper:
                 for attempt in range(max_retries):
                     try:
                         await self.update_status(http_client=http_client)
-                        previous_balance = round(self.status['userBalance'], 1)
                         new_pixel_info, option = await self.prepare_pixel_info(http_client=http_client)
                         if (new_pixel_info is None) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
                             logger.info(
-                                f"{self.session_name} | Choosing a different template as the current one failed to load.")
+                                f"{self.session_name} | Choosing a different template as the current one failed to"
+                                f" load.")
                             await self.subscribe_unpopular_template(http_client=http_client)
                             continue
                         x, y, color, pixel_id = new_pixel_info
-                        # url = 'https://notpx.app/api/v1/repaint/start'
-                        # payload = {"pixelId": pixel_id, "newColor": color}
-                        # paint_request = await http_client.post(url=url, json=payload)
 
-                        # Check if 401 Unauthorized occurs and re-authenticate
-                        # if paint_request.status == 401:
-                        #    logger.warning(
-                        #        f"{self.session_name} | 401 Unauthorized during paint request. Reauthorizing...")
-                        #    await self.authorise(
-                        #        http_client=http_client)  # Assuming this method handles re-authentication
-                        #    continue  # Retry the operation after re-authenticating
-                        # elif 400 <= paint_request.status < 500:
-                        #    raise Exception(f"Client error {paint_request.status} for URL: {url} "
-                        #                    f"with payload {payload}")
-
-                        # paint_request.raise_for_status()
                         await self.websocket.paint(pixel_id, color)
-                        # Update balance and charges
-                        current_balance = round(await self.get_balance(http_client=http_client), 1)
-                        if current_balance:
-                            self.status['userBalance'] = current_balance
 
-                        delta = None
-                        if current_balance and previous_balance:
-                            delta = round(current_balance - previous_balance, 1)
-                        else:
-                            logger.warning(
-                                f"{self.session_name} | Failed to retrieve reward data: current_balance or "
-                                f"previous_balance is missing."
-                            )
+                        await asyncio.sleep(delay=randint(1, 3))
                         r, g, b = hex_to_rgb(color)
                         ansi_color = f'\033[48;2;{r};{g};{b}m'
                         opposite_r, opposite_g, opposite_b = get_opposite_color(r, g, b)
@@ -1232,16 +1284,8 @@ class Tapper:
                         logger.success(
                             f"{self.session_name} | Painted on (x={x}, y={y}) with color {ansi_color}{opposite_color}"
                             f"{color}"
-                            f"{Style.RESET_ALL}| Reward: <e>{delta}</e>"
-                            f"| Charges: <e>{charges - charge}</e>"
+                            f"{Style.RESET_ALL}| Charges: <e>{charges - charge}</e>"
                         )
-                        if (delta == 0) and settings.USE_UNPOPULAR_TEMPLATE and option.USER_TEMPLATE:
-                            if not settings.RANDOM_PIXEL_MODE:
-                                logger.info(
-                                    f"{self.session_name} | Reward is zero, opting for a different template.")
-                                await self.choose_and_subscribe_template(http_client=http_client)
-                        self.status['charges'] -= 1
-                        await asyncio.sleep(delay=randint(2, 5))
                         break
                     except Exception as error:
                         retry_delay = base_delay * (attempt + 1)
@@ -1258,15 +1302,19 @@ class Tapper:
                             logger.error(
                                 f"{self.session_name} | Maximum retry attempts reached. Ending painting process.")
                             return
-                await asyncio.sleep(delay=randint(10, 20))
+                await asyncio.sleep(delay=randint(1, 3))
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when painting: {error}")
         finally:
             await self.update_status(http_client)
             status = self.status
+            confirmed_rewards = await self.get_history_filtered(http_client=http_client, action="buy pixel",
+                                                                datetime_from=start_datetime)
+            total_balance_change = sum(item["balanceChange"] for item in confirmed_rewards)
             logger.info(f"{self.session_name} | Painting completed | Total repaints: <y>{status['repaintsTotal']}"
-                        f"</y> <e>(+{status['repaintsTotal'] - previous_repaints})</e>")
+                        f"</y> <e>(+{status['repaintsTotal'] - previous_repaints})</e> | Confirmed rewards: "
+                        f"<y>{len(confirmed_rewards)}</y> <e>(+{total_balance_change})</e>")
 
     # Planning to draw each pixel in separate coroutines to interleave drawing with other actions,
     # rather than drawing each pixel sequentially.
@@ -1347,6 +1395,7 @@ class Tapper:
             logger.error(f"{self.session_name} | Failed to claim reward after multiple attempts")
 
         await asyncio.sleep(random.randint(5, 10))
+
         return reward
 
     async def subscribe_unpopular_template(self, http_client):
@@ -1698,27 +1747,20 @@ class Tapper:
                 await self.update_status(http_client=http_client)
                 balance = await self.get_balance(http_client)
                 logger.info(f"{self.session_name} | Balance: <e>{balance}</e>")
-                # await self.check_response(http_client=http_client)
 
                 tasks = []
                 if settings.AUTO_DRAW:
                     if settings.DRAW_TOURNAMENT_TEMPLATE:
-                        its_round_period = False
-
                         periods = await self.get_periods(http_client=http_client)
                         if periods:
                             active_period = periods["activePeriod"]
                             if active_period["PeriodType"] == "round":
-                                its_round_period = True
+                                tasks.append(self.subscribe_and_paint(http_client=http_client))
                                 logger.info(f'{self.session_name} | This is the <y>Round {active_period["RoundID"]}</y>'
-                                            f' period, drawing...')
+                                            f' period, drawing enabled')
                             elif active_period["PeriodType"] == "break":
-                                its_round_period = False
-                                logger.info(f'{self.session_name} | This is the <y>break</y> period, resting...')
-                        if its_round_period:
-                            tasks.append(self.subscribe_and_paint(http_client=http_client))
-                        else:
-                            await self.choose_and_subscribe_tournament_template(http_client=http_client)
+                                await self.choose_and_subscribe_tournament_template(http_client=http_client)
+                                logger.info(f'{self.session_name} | This is the <y>break</y> period, drawing disabled')
                     else:
                         tasks.append(self.subscribe_and_paint(http_client=http_client))
 
@@ -1736,9 +1778,6 @@ class Tapper:
 
                 if settings.USE_SECRET_WORDS:
                     tasks.append(self.use_secret_words(http_client=http_client))
-
-                # if settings.SUBSCRIBE_TOURNAMENT_TEMPLATE:
-                #    tasks.append(self.choose_and_subscribe_tournament_template(http_client=http_client))
 
                 if settings.WATCH_ADS:
                     tasks.append(self.watch_ads(http_client=http_client))
