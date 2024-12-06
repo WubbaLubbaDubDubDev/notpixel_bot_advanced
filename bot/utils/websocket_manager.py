@@ -103,7 +103,7 @@ class WebsocketManager:
             msg = await self.websocket.receive()
             if msg:
                 paint_payload = f'''<	j8
-                -{{"type":0,"pixelId":{pixel_id},"color":"{color}"}}repaint'''.encode()
+-{{"type":0,"pixelId":{pixel_id},"color":"{color}"}}repaint'''.encode()
                 if not self.websocket.closed:
                     await self.websocket.send_bytes(paint_payload)
                 else:
