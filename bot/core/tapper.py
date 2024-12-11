@@ -1025,7 +1025,9 @@ class Tapper:
 
     async def download_image(self, url: str, http_client: ClientSession, cache: bool = False):
         download_folder = "app_data/images/"
-        file_name = os.path.basename(url)
+
+        parsed_url = urlparse(url)
+        file_name = os.path.basename(parsed_url.path)
         file_path = os.path.join(download_folder, file_name)
 
         if self.memory_cache and cache and ((cached_image := self.memory_cache.get(url)) is not None):
@@ -1477,15 +1479,15 @@ class Tapper:
                         show_url = adv_data['banner']['trackings'][1]['value']
                         show_response = await http_client.get(show_url, headers=_headers)
                         show_response.raise_for_status()
-                        await asyncio.sleep(random.randint(10, 15))
+                        await asyncio.sleep(random.randint(5, 10))
                         show_url = adv_data['banner']['trackings'][2]['value']
                         show_response = await http_client.get(show_url, headers=_headers)
                         show_response.raise_for_status()
-                        await asyncio.sleep(random.randint(10, 15))
+                        await asyncio.sleep(random.randint(5, 10))
                         show_url = adv_data['banner']['trackings'][3]['value']
                         show_response = await http_client.get(show_url, headers=_headers)
                         show_response.raise_for_status()
-                        await asyncio.sleep(random.randint(10, 15))
+                        await asyncio.sleep(random.randint(5, 10))
                         reward_url = adv_data['banner']['trackings'][4]['value']
                         reward_response = await http_client.get(reward_url, headers=_headers)
                         reward_response.raise_for_status()
