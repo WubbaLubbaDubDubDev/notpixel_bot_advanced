@@ -440,10 +440,10 @@ class Tapper:
                                         logger.success(
                                             f"{self.session_name} | League requirement met. Upgraded to {new_league}."
                                         )
-                                        await self.update_status(http_client)
-                                        current_balance = await self.get_balance(http_client)
-                                        logger.info(f"{self.session_name} | Current balance: {current_balance}")
                                     await asyncio.sleep(delay=randint(10, 20))
+                                    await self.update_status(http_client)
+                                    current_balance = await self.get_balance(http_client)
+                                    logger.info(f"{self.session_name} | Current balance: {current_balance}")
                                     break
 
                     for task in settings.TASKS_TO_DO:

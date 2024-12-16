@@ -17,10 +17,12 @@ class Settings(BaseSettings):
 
     # Task automation
     AUTO_TASK: bool = True  # Automatic task execution
-    TASKS_TO_DO: list[str] = [  # Tasks to perform
+    TASKS_TO_DO: list[str] = [
         "paint20pixels", "x:notpixel",
         "x:notcoin", "channel:notcoin",
         "channel:notpixel_channel", "joinSquad",
+        "sashaX", "starHash", "duckChain",
+        "trmnl", "frogApp", "earnCoin"
     ]
 
     AUTO_DRAW: bool = True  # Enable automatic drawing
